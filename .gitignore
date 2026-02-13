@@ -1,0 +1,58 @@
+# Binaries
+Binaries/
+Binaries_bak*/
+*.dll
+*.exe
+*.dylib
+*.so
+*.lib
+
+# Intermediate build files
+Intermediate/
+Intermediate_bak*/
+*.tlog
+*.obj
+*.pch
+*.obj.rsp
+
+# Visual Studio
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.user
+*.vcxproj.filters
+
+# Build artifacts
+Build/
+*.a
+*.lib
+
+# Saved files
+Saved/
+BlueprintExports/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Backup files
+*_bak*
+*.backup
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Generated code
+*.generated.cpp
+*.generated.h
+*.gen.cpp

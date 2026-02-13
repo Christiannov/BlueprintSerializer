@@ -1,0 +1,117 @@
+# Blueprint to C++ Code Generation Context Template
+
+## Task
+Convert the following Unreal Engine Blueprint data into production-ready C++ code.
+
+## Blueprint Data
+{{BLUEPRINT_JSON}}
+
+## Reference Files
+{{REFERENCE_FILES}}
+
+## Conversion Guidelines
+
+### General Requirements
+1. Follow Unreal Engine coding standards
+2. Use appropriate UCLASS, UPROPERTY, and UFUNCTION macros
+3. Include proper header guards and forward declarations
+4. Implement proper error handling and validation
+5. Maintain Blueprint's original functionality exactly
+
+### Class Structure
+- Preserve the original class hierarchy
+- Maintain all Blueprint variables as UPROPERTY members
+- Convert Blueprint functions to UFUNCTION methods
+- Keep component relationships intact
+
+### Variable Conversion
+- Blueprint variables → UPROPERTY member variables
+- Maintain original access specifiers (public/private/protected)
+- Preserve replication settings where applicable
+- Include proper categories and metadata
+
+### Function Implementation
+- Convert graph logic to C++ implementation
+- Maintain execution flow from Blueprint graphs
+- Handle async operations appropriately
+- Preserve pure function designations
+
+### Event Handling
+- Convert Blueprint events to appropriate C++ event handlers
+- Maintain event binding relationships
+- Preserve multicast delegate connections
+
+### Component Management
+- Convert component hierarchy correctly
+- Initialize components in constructor
+- Set up component attachments properly
+
+### Code Style
+- Use UE coding conventions (prefix classes with A, U, F, etc.)
+- Include appropriate log statements for debugging
+- Add minimal but useful comments for complex logic
+- Group related functionality together
+
+## Expected Output Format
+
+### Header File (.h)
+```cpp
+#pragma once
+
+#include "CoreMinimal.h"
+#include "[ParentClass].h"
+#include "[ClassName].generated.h"
+
+UCLASS()
+class [MODULE]_API [ClassName] : public [ParentClass]
+{
+    GENERATED_BODY()
+
+public:
+    [ClassName]();
+
+protected:
+    virtual void BeginPlay() override;
+
+    // Variables
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "[Category]")
+    [Type] [VariableName];
+
+    // Functions
+    UFUNCTION(BlueprintCallable, Category = "[Category]")
+    [ReturnType] [FunctionName]([Parameters]);
+
+private:
+    // Implementation details
+};
+```
+
+### Source File (.cpp)
+```cpp
+#include "[ClassName].h"
+
+[ClassName]::[ClassName]()
+{
+    // Constructor implementation
+}
+
+void [ClassName]::BeginPlay()
+{
+    Super::BeginPlay();
+    // BeginPlay implementation
+}
+
+[ReturnType] [ClassName]::[FunctionName]([Parameters])
+{
+    // Function implementation
+}
+```
+
+## Implementation Notes
+{{IMPLEMENTATION_NOTES}}
+
+## Additional Context
+- Engine Version: {{ENGINE_VERSION}}
+- Project Name: {{PROJECT_NAME}}
+- Export Timestamp: {{TIMESTAMP}}
+- Plugin Version: {{PLUGIN_VERSION}}

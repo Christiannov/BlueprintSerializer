@@ -1,0 +1,35 @@
+# Blueprint Analysis Context Template
+
+## Blueprint Information
+{{BLUEPRINT_JSON}}
+
+## Analysis Request
+Please analyze this Blueprint and provide:
+
+1. **Overview**
+   - Purpose and functionality
+   - Key features and behaviors
+   - Dependencies and relationships
+
+2. **Structure Analysis**
+   - Class hierarchy
+   - Component composition
+   - Variable organization
+   - Function categorization
+
+3. **Complexity Assessment**
+   - Node count and graph complexity
+   - Execution flow patterns
+   - Performance considerations
+   - Potential optimization opportunities
+
+4. **Recommendations**
+   - Best practices alignment
+   - Refactoring suggestions
+   - Performance improvements
+   - Code organization enhancements
+
+## Context
+- Engine Version: {{ENGINE_VERSION}}
+- Project: {{PROJECT_NAME}}
+- Timestamp: {{TIMESTAMP}}

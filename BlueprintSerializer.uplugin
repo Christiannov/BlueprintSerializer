@@ -1,0 +1,53 @@
+﻿{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "Blueprint Serializer",
+	"Description": "Serializes Unreal Engine Blueprints to comprehensive JSON format for analysis, documentation, and code generation",
+	"Category": "Developer Tools",
+	"CreatedBy": "BlueprintSerializer Contributors",
+	"CreatedByURL": "https://github.com/Jinphinity/BlueprintSerializer",
+	"DocsURL": "https://github.com/Jinphinity/BlueprintSerializer/wiki",
+	"MarketplaceURL": "",
+	"SupportURL": "https://github.com/Jinphinity/BlueprintSerializer/issues",
+	"EnabledByDefault": true,
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"SupportedTargetPlatforms": ["Win64", "Mac", "Linux"],
+	"Plugins": [
+		{
+			"Name": "ControlRig",
+			"Enabled": true
+		},
+		{
+			"Name": "RigVM",
+			"Enabled": true
+		}
+	],
+	"Modules": [
+		{
+			"Name": "BlueprintSerializer",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit",
+			"PlatformAllowList": ["Win64", "Mac", "Linux"],
+			"AdditionalDependencies": [
+				"Core",
+				"CoreUObject",
+				"Engine",
+				"UnrealEd",
+				"AssetRegistry",
+				"ToolMenus",
+				"EditorStyle",
+				"EditorWidgets",
+				"BlueprintGraph",
+				"KismetCompiler",
+				"Json",
+				"DeveloperSettings",
+				"EditorSubsystem"
+			]
+		}
+	]
+}
+

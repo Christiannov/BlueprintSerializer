@@ -1,0 +1,25 @@
+# Blueprint Serializer Plugin Icon Placeholder
+
+This file is a placeholder for the actual Icon128.png file.
+
+## Required Icon Files:
+- Icon128.png (128x128 pixels) - Main plugin icon shown in the Plugins window
+
+## Optional Icon Files:
+- Icon16.png (16x16 pixels) - Small icon for menus
+- Icon20.png (20x20 pixels) - Toolbar icon
+- Icon40.png (40x40 pixels) - Medium icon
+- Icon64.png (64x64 pixels) - Large icon
+
+## Icon Design Guidelines:
+- Use transparent background (PNG with alpha channel)
+- Simple, clear design that's recognizable at small sizes
+- Consistent with Unreal Engine's visual style
+- Suggested theme: Blueprint nodes + JSON/code conversion
+
+## Color Suggestions:
+- Primary: Blueprint Blue (#0084FF)
+- Secondary: JSON Green (#00C851) or Code Orange (#FF6D00)
+- Background: Transparent or dark grey (#1E1E1E)
+
+Replace this file with an actual Icon128.png image file.
