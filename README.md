@@ -2,6 +2,10 @@
 
 A professional-grade Unreal Engine 5 plugin for serializing Blueprint assets to JSON format, enabling analysis, documentation, and AI-assisted code generation workflows.
 
+Canonical scope reference: `FULL_EXTRACTION_DEFINITION.md`
+Converter-ready scope reference: `CONVERTER_READY_EXTRACTION_SPEC.md`
+Converter-ready live tracker: `CONVERTER_READY_TODO.md`
+
 ## Overview
 
 Blueprint Serializer is an engine-level developer tool that extracts comprehensive data from Unreal Engine Blueprints and exports it as structured JSON. This enables:
@@ -55,7 +59,6 @@ Blueprint Serializer is an engine-level developer tool that extracts comprehensi
 | Command | Description | Example |
 |---------|-------------|---------|
 | `BP_SLZR.Serialize` | Serialize a Blueprint to JSON | `BP_SLZR.Serialize /Game/Blueprints/MyActor` |
-| `BS.Serialize` | Alias for `BP_SLZR.Serialize` | `BS.Serialize /Game/Blueprints/MyActor` |
 | `BP_SLZR.Count` | Count all Blueprints in project | `BP_SLZR.Count` |
 | `BP_SLZR.Settings` | Open plugin settings | `BP_SLZR.Settings` |
 | `BP_SLZR.OpenFolder` | Open export directory | `BP_SLZR.OpenFolder` |
@@ -99,8 +102,7 @@ Access via: **Tools → Blueprint Serializer** in the main menu bar
 ```
 1. Open Blueprint in editor
 2. Run console command: BP_SLZR.Serialize /Game/Blueprints/BP_MyActor
-   - Alias: BS.Serialize /Game/Blueprints/BP_MyActor
-3. JSON file created in: [Project]/Saved/BlueprintExports/
+3. JSON file created in: [Project]/Saved/BlueprintSerializer/BP_MyActor/
 ```
 
 ### AI-Assisted C++ Conversion
@@ -114,7 +116,7 @@ Access via: **Tools → Blueprint Serializer** in the main menu bar
 ### Batch Processing
 ```
 1. Use BP_SLZR.Count to see total Blueprints
-2. Write script using BP_SLZR.Serialize (or BS.Serialize) commands
+2. Write script using BP_SLZR.Serialize commands
 3. Process JSON files with external tools
 ```
 

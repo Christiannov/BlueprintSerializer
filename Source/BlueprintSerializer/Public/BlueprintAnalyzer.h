@@ -63,6 +63,27 @@ struct BLUEPRINTSERIALIZER_API FBS_VariableInfo
 	
 	UPROPERTY()
 	FString RepCondition;
+
+	UPROPERTY()
+	FString RepNotifyFunction;
+
+	UPROPERTY()
+	FString TypeCategory;
+
+	UPROPERTY()
+	FString TypeSubCategory;
+
+	UPROPERTY()
+	FString TypeObjectPath;
+
+	UPROPERTY()
+	bool bIsArray = false;
+
+	UPROPERTY()
+	bool bIsMap = false;
+
+	UPROPERTY()
+	bool bIsSet = false;
 };
 
 /**
@@ -91,6 +112,18 @@ struct BLUEPRINTSERIALIZER_API FBS_ComponentInfo
 	
 	UPROPERTY()
 	TArray<FString> AssetReferences;
+
+	UPROPERTY()
+	bool bIsRootComponent = false;
+
+	UPROPERTY()
+	bool bIsInherited = false;
+
+	UPROPERTY()
+	bool bIsParentComponentNative = false;
+
+	UPROPERTY()
+	FString ParentOwnerClassName;
 };
 
 /**
@@ -105,10 +138,10 @@ struct BLUEPRINTSERIALIZER_API FBS_FunctionInfo
 	FBS_FunctionInfo()
 		: bIsPure(false)
 		, bIsPublic(false)
-		, bIsStatic(false)
-		, bCallInEditor(false)
 		, bIsProtected(false)
 		, bIsPrivate(false)
+		, bIsStatic(false)
+		, bCallInEditor(false)
 		, bIsLatent(false)
 	{
 	}
@@ -142,6 +175,33 @@ struct BLUEPRINTSERIALIZER_API FBS_FunctionInfo
 	
 	UPROPERTY()
 	bool bIsLatent;
+
+	UPROPERTY()
+	bool bIsOverride = false;
+
+	UPROPERTY()
+	bool bCallsParent = false;
+
+	UPROPERTY()
+	bool bIsNet = false;
+
+	UPROPERTY()
+	bool bIsNetServer = false;
+
+	UPROPERTY()
+	bool bIsNetClient = false;
+
+	UPROPERTY()
+	bool bIsNetMulticast = false;
+
+	UPROPERTY()
+	bool bIsReliable = false;
+
+	UPROPERTY()
+	bool bBlueprintAuthorityOnly = false;
+
+	UPROPERTY()
+	bool bBlueprintCosmetic = false;
 	
 	UPROPERTY()
 	TArray<FString> InputParameters;
@@ -151,9 +211,84 @@ struct BLUEPRINTSERIALIZER_API FBS_FunctionInfo
 	
 	UPROPERTY()
 	FString ReturnType;
+
+	UPROPERTY()
+	FString ReturnTypeObjectPath;
+
+	UPROPERTY()
+	TArray<FString> LocalVariables;
+
+	UPROPERTY()
+	FString FunctionPath;
+
+	UPROPERTY()
+	int32 BytecodeSize = 0;
+
+	UPROPERTY()
+	FString BytecodeHash;
 	
 	UPROPERTY()
 	FString AccessSpecifier; // "public", "protected", "private"
+};
+
+USTRUCT(BlueprintType)
+struct BLUEPRINTSERIALIZER_API FBS_TimelineTrackData
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FString TrackName;
+
+	UPROPERTY()
+	FString TrackType;
+
+	UPROPERTY()
+	FString CurvePath;
+
+	UPROPERTY()
+	FString PropertyName;
+
+	UPROPERTY()
+	FString FunctionName;
+
+	UPROPERTY()
+	int32 KeyCount = 0;
+};
+
+USTRUCT(BlueprintType)
+struct BLUEPRINTSERIALIZER_API FBS_TimelineData
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FString TimelineName;
+
+	UPROPERTY()
+	float TimelineLength = 0.0f;
+
+	UPROPERTY()
+	FString LengthMode;
+
+	UPROPERTY()
+	bool bAutoPlay = false;
+
+	UPROPERTY()
+	bool bLoop = false;
+
+	UPROPERTY()
+	bool bReplicated = false;
+
+	UPROPERTY()
+	bool bIgnoreTimeDilation = false;
+
+	UPROPERTY()
+	FString UpdateFunctionName;
+
+	UPROPERTY()
+	FString FinishedFunctionName;
+
+	UPROPERTY()
+	TArray<FBS_TimelineTrackData> Tracks;
 };
 
 /**
@@ -688,9 +823,18 @@ struct BLUEPRINTSERIALIZER_API FBS_BlueprintData
 	
 	UPROPERTY()
 	FString ParentClassName;
+
+	UPROPERTY()
+	FString ParentClassPath;
 	
 	UPROPERTY()
 	FString GeneratedClassName;
+
+	UPROPERTY()
+	FString GeneratedClassPath;
+
+	UPROPERTY()
+	FString BlueprintNamespace;
 	
 	UPROPERTY()
 	FString BlueprintDescription;
@@ -703,6 +847,12 @@ struct BLUEPRINTSERIALIZER_API FBS_BlueprintData
 	
 	UPROPERTY()
 	TArray<FString> ImplementedInterfaces;
+
+	UPROPERTY()
+	TArray<FString> ImplementedInterfacePaths;
+
+	UPROPERTY()
+	TArray<FString> ImportedNamespaces;
 	
 	// Enhanced detailed information
 	UPROPERTY()
@@ -710,9 +860,15 @@ struct BLUEPRINTSERIALIZER_API FBS_BlueprintData
 	
 	UPROPERTY()
 	TArray<FBS_FunctionInfo> DetailedFunctions;
+
+	UPROPERTY()
+	TArray<FBS_FunctionInfo> DelegateSignatures;
 	
 	UPROPERTY()
 	TArray<FBS_ComponentInfo> DetailedComponents;
+
+	UPROPERTY()
+	TArray<FBS_TimelineData> Timelines;
 	
 	// Legacy simple arrays (for backward compatibility)
 	UPROPERTY()
@@ -741,6 +897,12 @@ struct BLUEPRINTSERIALIZER_API FBS_BlueprintData
 	// Asset references
 	UPROPERTY()
 	TArray<FString> AssetReferences;
+
+	UPROPERTY()
+	TArray<FString> UnsupportedNodeTypes;
+
+	UPROPERTY()
+	TArray<FString> PartiallySupportedNodeTypes;
 	
 	// Blueprint settings
 	UPROPERTY()
@@ -850,6 +1012,7 @@ private:
 	 * Extract detailed function information from Blueprint
 	 */
 	static TArray<FBS_FunctionInfo> ExtractDetailedFunctions(UBlueprint* Blueprint);
+	static TArray<FBS_FunctionInfo> ExtractDelegateSignatures(UBlueprint* Blueprint);
 	
 	/**
 	 * Extract component information from Blueprint (legacy)
@@ -870,6 +1033,7 @@ private:
 	 * Extract Blueprint metadata and settings
 	 */
 	static void ExtractBlueprintMetadata(UBlueprint* Blueprint, FBS_BlueprintData& OutData);
+	static void ExtractTimelineData(UBlueprint* Blueprint, FBS_BlueprintData& OutData);
 	
 	/**
 	 * Extract graph node information from Blueprint (legacy)

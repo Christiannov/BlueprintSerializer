@@ -11,7 +11,7 @@
  * Console commands for Blueprint Serializer
  * These can be run directly in the Editor console without modifying any Blueprints
  * 
- * Commands use the BP_SLZR.* namespace (BS.Serialize is an alias for BP_SLZR.Serialize):
+ * Commands use the BP_SLZR.* namespace:
  * - BP_SLZR.ExportSingleBlueprint <path> - Export one Blueprint to JSON
  * - BP_SLZR.ExportMultipleBlueprints <paths...> - Export multiple Blueprints
  * - BP_SLZR.AnalyzeBlueprint <path> - Analyze a Blueprint (log only)

@@ -44,6 +44,7 @@ public class BlueprintSerializer : ModuleRules
 				"DesktopPlatform",
 				"ApplicationCore",
 				"ControlRig",
+				"ControlRigDeveloper",
 				"RigVM",
 				"RigVMDeveloper"
 			}

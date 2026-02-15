@@ -1,6 +1,8 @@
 #include "BlueprintSerializerModule.h"
 #include "BSSettings.h"
 #include "BSDataTypes.h"
+#include "BlueprintAnalyzer.h"
+#include "BlueprintExtractorBlueprintLibrary.h"
 
 #include "ISettingsModule.h"
 #include "HAL/IConsoleManager.h"
@@ -17,7 +19,6 @@
 #include "Engine/Blueprint.h"
 #include "Animation/AnimBlueprint.h"
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "BlueprintAnalyzer.h"
 
 #define LOCTEXT_NAMESPACE "BlueprintSerializer"
 
@@ -80,44 +81,41 @@ void FBlueprintSerializerModule::UnregisterSettings()
 
 void FBlueprintSerializerModule::RegisterConsoleCommands()
 {
-    auto SerializeBlueprintCommand = [](const TArray<FString>& Args)
-    {
-        if (Args.Num() < 1)
-        {
-            UE_LOG(LogBlueprintSerializer, Warning, TEXT("Usage: BP_SLZR.Serialize /Game/Path/To/Blueprint"));
-            return;
-        }
+	// BP_SLZR.Serialize - Main serialization command
+	ConsoleCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT("BP_SLZR.Serialize"),
+		TEXT("Serialize a Blueprint to JSON. Usage: BP_SLZR.Serialize /Game/Path/To/Blueprint"),
+		FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+		{
+			if (Args.Num() < 1)
+			{
+				UE_LOG(LogBlueprintSerializer, Warning, TEXT("Usage: BP_SLZR.Serialize /Game/Path/To/Blueprint"));
+				return;
+			}
+			
+			FString BlueprintPath = Args[0];
+			UE_LOG(LogBlueprintSerializer, Log, TEXT("Serializing Blueprint: %s"), *BlueprintPath);
 
-        FString BlueprintPath = Args[0];
-        int32 SemicolonIndex = INDEX_NONE;
-        if (BlueprintPath.FindChar(';', SemicolonIndex))
-        {
-            BlueprintPath = BlueprintPath.Left(SemicolonIndex);
-        }
+			int32 SemicolonIndex;
+			if (BlueprintPath.FindChar(';', SemicolonIndex))
+			{
+				BlueprintPath = BlueprintPath.Left(SemicolonIndex);
+			}
 
-        UE_LOG(LogBlueprintSerializer, Log, TEXT("Serializing Blueprint: %s"), *BlueprintPath);
+			if (BlueprintPath.IsEmpty())
+			{
+				UE_LOG(LogBlueprintSerializer, Warning, TEXT("Empty Blueprint path after sanitization"));
+				return;
+			}
 
-        if (!UBlueprintAnalyzer::ExportSingleBlueprintToJSON(BlueprintPath))
-        {
-            UE_LOG(LogBlueprintSerializer, Error, TEXT("Blueprint export failed: %s"), *BlueprintPath);
-        }
-    };
-
-    // BP_SLZR.Serialize - Main serialization command
-    ConsoleCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-        TEXT("BP_SLZR.Serialize"),
-        TEXT("Serialize a Blueprint to JSON. Usage: BP_SLZR.Serialize /Game/Path/To/Blueprint"),
-        FConsoleCommandWithArgsDelegate::CreateLambda(SerializeBlueprintCommand),
-        ECVF_Default
-    ));
-
-    // BS.Serialize - Alias for BP_SLZR.Serialize
-    ConsoleCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-        TEXT("BS.Serialize"),
-        TEXT("Alias for BP_SLZR.Serialize. Usage: BS.Serialize /Game/Path/To/Blueprint"),
-        FConsoleCommandWithArgsDelegate::CreateLambda(SerializeBlueprintCommand),
-        ECVF_Default
-    ));
+			const bool bSuccess = UBlueprintAnalyzer::ExportSingleBlueprintToJSON(BlueprintPath);
+			if (!bSuccess)
+			{
+				UE_LOG(LogBlueprintSerializer, Error, TEXT("Failed to serialize Blueprint: %s"), *BlueprintPath);
+			}
+		}),
+		ECVF_Default
+	));
 	
 	// BP_SLZR.Count - Count blueprints in project
 	ConsoleCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
@@ -243,28 +241,49 @@ void FBlueprintSerializerModule::RegisterConsoleCommands()
 			
 			FString BlueprintPath = Args[0];
 			UE_LOG(LogBlueprintSerializer, Log, TEXT("Generating LLM context for: %s"), *BlueprintPath);
-			
-			// TODO: Implement context generation logic
+
+			int32 SemicolonIndex;
+			if (BlueprintPath.FindChar(';', SemicolonIndex))
+			{
+				BlueprintPath = BlueprintPath.Left(SemicolonIndex);
+			}
+
+			if (BlueprintPath.IsEmpty())
+			{
+				UE_LOG(LogBlueprintSerializer, Warning, TEXT("Empty Blueprint path after sanitization"));
+				return;
+			}
+
+			UBlueprint* TargetBlueprint = LoadObject<UBlueprint>(nullptr, *BlueprintPath);
+			if (!TargetBlueprint)
+			{
+				UE_LOG(LogBlueprintSerializer, Error, TEXT("Could not load Blueprint: %s"), *BlueprintPath);
+				return;
+			}
+
+			if (!UBlueprintSerializerBlueprintLibrary::GenerateLLMContext(TargetBlueprint))
+			{
+				UE_LOG(LogBlueprintSerializer, Error, TEXT("LLM context generation failed: %s"), *BlueprintPath);
+			}
 		}),
 		ECVF_Default
 	));
 	
 	// BP_SLZR.Help - Show help for all commands
-    ConsoleCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
-        TEXT("BP_SLZR.Help"),
-        TEXT("Show help for all Blueprint Serializer commands"),
-        FConsoleCommandDelegate::CreateLambda([]()
-        {
-            UE_LOG(LogBlueprintSerializer, Display, TEXT("=== Blueprint Serializer Commands ==="));
-            UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.Serialize <path> - Serialize a Blueprint to JSON"));
-            UE_LOG(LogBlueprintSerializer, Display, TEXT("BS.Serialize <path> - Alias for BP_SLZR.Serialize"));
-            UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.Count - Count all Blueprints in project"));
-            UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.Settings - Open plugin settings"));
-            UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.OpenFolder - Open export folder"));
-            UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.Version - Show plugin version"));
-            UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.GenerateContext <path> - Generate LLM context file"));
-            UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.Help - Show this help"));
-        }),
+	ConsoleCommands.Add(IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT("BP_SLZR.Help"),
+		TEXT("Show help for all Blueprint Serializer commands"),
+		FConsoleCommandDelegate::CreateLambda([]()
+		{
+			UE_LOG(LogBlueprintSerializer, Display, TEXT("=== Blueprint Serializer Commands ==="));
+			UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.Serialize <path> - Serialize a Blueprint to JSON"));
+			UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.Count - Count all Blueprints in project"));
+			UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.Settings - Open plugin settings"));
+			UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.OpenFolder - Open export folder"));
+			UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.Version - Show plugin version"));
+			UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.GenerateContext <path> - Generate LLM context file"));
+			UE_LOG(LogBlueprintSerializer, Display, TEXT("BP_SLZR.Help - Show this help"));
+		}),
 		ECVF_Default
 	));
 }
@@ -308,8 +327,24 @@ void FBlueprintSerializerModule::RegisterMenuExtensions()
 						FSlateIcon(),
 						FUIAction(FExecuteAction::CreateLambda([]() 
 						{
-							// TODO: Implement selected Blueprint serialization
-							UE_LOG(LogBlueprintSerializer, Log, TEXT("Serialize selected Blueprint"));
+							FContentBrowserModule& ContentBrowserModule = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
+							IContentBrowserSingleton& ContentBrowser = ContentBrowserModule.Get();
+							TArray<FAssetData> SelectedAssets;
+							ContentBrowser.GetSelectedAssets(SelectedAssets);
+
+							for (const FAssetData& AssetData : SelectedAssets)
+							{
+								if (AssetData.AssetClassPath == UBlueprint::StaticClass()->GetClassPathName() ||
+									AssetData.AssetClassPath == UAnimBlueprint::StaticClass()->GetClassPathName())
+								{
+									const FString BlueprintPath = AssetData.GetObjectPathString();
+									const bool bSuccess = UBlueprintAnalyzer::ExportSingleBlueprintToJSON(BlueprintPath);
+									UE_LOG(LogBlueprintSerializer, Log, TEXT("Serialize selected Blueprint (%s): %s"), *BlueprintPath, bSuccess ? TEXT("Success") : TEXT("Failed"));
+									return;
+								}
+							}
+
+							UE_LOG(LogBlueprintSerializer, Warning, TEXT("No Blueprint selected in Content Browser"));
 						}))
 					);
 					

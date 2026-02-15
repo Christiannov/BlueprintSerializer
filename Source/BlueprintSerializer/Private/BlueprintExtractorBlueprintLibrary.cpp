@@ -218,8 +218,76 @@ FString UBlueprintSerializerBlueprintLibrary::GetExportDirectory()
 bool UBlueprintSerializerBlueprintLibrary::GenerateLLMContext(UBlueprint* TargetBlueprint)
 {
 #if WITH_EDITOR
-	UE_LOG(LogTemp, Warning, TEXT("LLM context generation is not implemented yet."));
-	return false;
+	if (!TargetBlueprint)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("GenerateLLMContext: TargetBlueprint is null"));
+		return false;
+	}
+
+	const FBS_BlueprintData Data = UBlueprintAnalyzer::AnalyzeBlueprint(TargetBlueprint);
+	const FString SerializedJson = UBlueprintAnalyzer::ExportBlueprintDataToJSON(Data);
+
+	FString ExportDir = UDataExportManager::GetDefaultExportPath() / TEXT("LLMContext");
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	if (!PlatformFile.DirectoryExists(*ExportDir) && !PlatformFile.CreateDirectoryTree(*ExportDir))
+	{
+		UE_LOG(LogTemp, Error, TEXT("GenerateLLMContext: Failed to create export directory: %s"), *ExportDir);
+		return false;
+	}
+
+	FString ContextText;
+	ContextText += FString::Printf(TEXT("# Blueprint Context: %s\n\n"), *Data.BlueprintName);
+	ContextText += FString::Printf(TEXT("- Blueprint Path: `%s`\n"), *Data.BlueprintPath);
+	ContextText += FString::Printf(TEXT("- Parent Class: `%s`\n"), *Data.ParentClassPath);
+	ContextText += FString::Printf(TEXT("- Generated Class: `%s`\n"), *Data.GeneratedClassPath);
+	ContextText += FString::Printf(TEXT("- Namespace: `%s`\n"), *Data.BlueprintNamespace);
+	ContextText += FString::Printf(TEXT("- Interface Count: %d\n"), Data.ImplementedInterfaces.Num());
+	ContextText += FString::Printf(TEXT("- Variable Count: %d\n"), Data.DetailedVariables.Num());
+	ContextText += FString::Printf(TEXT("- Function Count: %d\n"), Data.DetailedFunctions.Num());
+	ContextText += FString::Printf(TEXT("- Delegate Signature Count: %d\n"), Data.DelegateSignatures.Num());
+	ContextText += FString::Printf(TEXT("- Component Count: %d\n"), Data.DetailedComponents.Num());
+	ContextText += FString::Printf(TEXT("- Timeline Count: %d\n"), Data.Timelines.Num());
+	ContextText += FString::Printf(TEXT("- Total Node Count: %d\n"), Data.TotalNodeCount);
+	ContextText += FString::Printf(TEXT("- Unsupported Node Types: %d\n"), Data.UnsupportedNodeTypes.Num());
+	ContextText += FString::Printf(TEXT("- Partially Supported Node Types: %d\n\n"), Data.PartiallySupportedNodeTypes.Num());
+
+	if (Data.UnsupportedNodeTypes.Num() > 0)
+	{
+		ContextText += TEXT("## Unsupported Node Types\n");
+		for (const FString& NodeType : Data.UnsupportedNodeTypes)
+		{
+			ContextText += FString::Printf(TEXT("- `%s`\n"), *NodeType);
+		}
+		ContextText += TEXT("\n");
+	}
+
+	if (Data.PartiallySupportedNodeTypes.Num() > 0)
+	{
+		ContextText += TEXT("## Partially Supported Node Types\n");
+		for (const FString& NodeType : Data.PartiallySupportedNodeTypes)
+		{
+			ContextText += FString::Printf(TEXT("- `%s`\n"), *NodeType);
+		}
+		ContextText += TEXT("\n");
+	}
+
+	ContextText += TEXT("## Serialized Blueprint JSON\n\n");
+	ContextText += TEXT("```json\n");
+	ContextText += SerializedJson;
+	ContextText += TEXT("\n```\n");
+
+	const FString TimeStamp = UDataExportManager::GetTimestamp();
+	const FString ContextFileName = FString::Printf(TEXT("BP_SLZR_Context_%s_%s.md"), *Data.BlueprintName, *TimeStamp);
+	const FString ContextFilePath = FPaths::Combine(ExportDir, ContextFileName);
+
+	if (!FFileHelper::SaveStringToFile(ContextText, *ContextFilePath, FFileHelper::EEncodingOptions::AutoDetect))
+	{
+		UE_LOG(LogTemp, Error, TEXT("GenerateLLMContext: Failed to write context file: %s"), *ContextFilePath);
+		return false;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("GenerateLLMContext: Created context file: %s"), *ContextFilePath);
+	return true;
 #else
 	return false;
 #endif
