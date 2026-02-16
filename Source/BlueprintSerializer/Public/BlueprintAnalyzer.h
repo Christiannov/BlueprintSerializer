@@ -297,6 +297,60 @@ struct BLUEPRINTSERIALIZER_API FBS_TimelineData
 	TArray<FBS_TimelineTrackData> Tracks;
 };
 
+USTRUCT(BlueprintType)
+struct BLUEPRINTSERIALIZER_API FBS_UserDefinedStructFieldSchema
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FString Name;
+
+	UPROPERTY()
+	FString Type;
+
+	UPROPERTY()
+	FString TypeObjectPath;
+
+	UPROPERTY()
+	bool bIsArray = false;
+
+	UPROPERTY()
+	bool bIsMap = false;
+
+	UPROPERTY()
+	bool bIsSet = false;
+};
+
+USTRUCT(BlueprintType)
+struct BLUEPRINTSERIALIZER_API FBS_UserDefinedStructSchema
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FString StructName;
+
+	UPROPERTY()
+	FString StructPath;
+
+	UPROPERTY()
+	TArray<FBS_UserDefinedStructFieldSchema> Fields;
+};
+
+USTRUCT(BlueprintType)
+struct BLUEPRINTSERIALIZER_API FBS_UserDefinedEnumSchema
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FString EnumName;
+
+	UPROPERTY()
+	FString EnumPath;
+
+	UPROPERTY()
+	TArray<FString> Enumerators;
+};
+
 /**
  * Structure for graph data with structured nodes
  * Represents a complete Blueprint graph with nodes and connections
@@ -871,6 +925,12 @@ struct BLUEPRINTSERIALIZER_API FBS_BlueprintData
 
 	UPROPERTY()
 	TMap<FString, FString> ClassDefaultValueDelta;
+
+	UPROPERTY()
+	TArray<FBS_UserDefinedStructSchema> UserDefinedStructSchemas;
+
+	UPROPERTY()
+	TArray<FBS_UserDefinedEnumSchema> UserDefinedEnumSchemas;
 	
 	// Enhanced detailed information
 	UPROPERTY()
@@ -1052,6 +1112,7 @@ private:
 	 */
 	static void ExtractBlueprintMetadata(UBlueprint* Blueprint, FBS_BlueprintData& OutData);
 	static void ExtractClassParityData(UBlueprint* Blueprint, FBS_BlueprintData& OutData);
+	static void ExtractUserTypeSchemas(UBlueprint* Blueprint, FBS_BlueprintData& OutData);
 	static void ExtractTimelineData(UBlueprint* Blueprint, FBS_BlueprintData& OutData);
 	
 	/**

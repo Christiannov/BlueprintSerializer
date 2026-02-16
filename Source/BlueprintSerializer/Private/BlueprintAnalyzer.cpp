@@ -23,6 +23,8 @@
 #include "Curves/CurveVector.h"
 #include "Curves/CurveLinearColor.h"
 #include "UObject/Script.h"
+#include "Engine/UserDefinedEnum.h"
+#include "StructUtils/UserDefinedStruct.h"
 
 #include "AnimGraphNode_Base.h"
 #include "AnimGraphNode_BlendSpacePlayer.h"
@@ -851,8 +853,40 @@ namespace
 
             if (Candidate.StartsWith(TEXT("/Script/")))
             {
-                OutClosure.Classes.Add(Candidate);
                 AddModuleFromPath(Candidate, OutClosure.Modules);
+
+                if (UObject* ScriptObject = FindObject<UObject>(nullptr, *Candidate))
+                {
+                    if (UClass* ScriptClass = Cast<UClass>(ScriptObject))
+                    {
+                        const FString ScriptPath = ScriptClass->GetPathName();
+                        if (ScriptClass->HasAnyClassFlags(CLASS_Interface))
+                        {
+                            OutClosure.Interfaces.Add(ScriptPath);
+                        }
+                        else
+                        {
+                            OutClosure.Classes.Add(ScriptPath);
+                        }
+                    }
+                    else if (UScriptStruct* ScriptStruct = Cast<UScriptStruct>(ScriptObject))
+                    {
+                        OutClosure.Structs.Add(ScriptStruct->GetPathName());
+                    }
+                    else if (UEnum* ScriptEnum = Cast<UEnum>(ScriptObject))
+                    {
+                        OutClosure.Enums.Add(ScriptEnum->GetPathName());
+                    }
+                    else
+                    {
+                        OutClosure.Classes.Add(Candidate);
+                    }
+                }
+                else
+                {
+                    OutClosure.Classes.Add(Candidate);
+                }
+
                 continue;
             }
 
@@ -944,6 +978,21 @@ namespace
             AddDependencyPath(Var.TypeObjectPath, Closure);
             AddDependencyText(Var.VariableType, Closure);
             AddDependencyText(Var.DefaultValue, Closure);
+        }
+
+        for (const FBS_UserDefinedStructSchema& StructSchema : Data.UserDefinedStructSchemas)
+        {
+            AddDependencyPath(StructSchema.StructPath, Closure);
+            for (const FBS_UserDefinedStructFieldSchema& Field : StructSchema.Fields)
+            {
+                AddDependencyPath(Field.TypeObjectPath, Closure);
+                AddDependencyText(Field.Type, Closure);
+            }
+        }
+
+        for (const FBS_UserDefinedEnumSchema& EnumSchema : Data.UserDefinedEnumSchemas)
+        {
+            AddDependencyPath(EnumSchema.EnumPath, Closure);
         }
 
         for (const FBS_FunctionInfo& Func : Data.DetailedFunctions)
@@ -1075,6 +1124,33 @@ namespace
         ClosureJson->SetArrayField(TEXT("assetPaths"), BuildStringArray(ToSortedArray(Closure.Assets)));
         ClosureJson->SetArrayField(TEXT("controlRigPaths"), BuildStringArray(ToSortedArray(Closure.ControlRigs)));
         ClosureJson->SetArrayField(TEXT("moduleNames"), BuildStringArray(ToSortedArray(Closure.Modules)));
+
+        TSet<FString> IncludeHints;
+        auto AddIncludeHint = [&IncludeHints](const FString& ScriptPath)
+        {
+            if (!ScriptPath.StartsWith(TEXT("/Script/")))
+            {
+                return;
+            }
+
+            const FString ScriptPart = ScriptPath.Mid(8);
+            FString ModuleName;
+            FString SymbolName;
+            if (!ScriptPart.Split(TEXT("."), &ModuleName, &SymbolName) || ModuleName.IsEmpty() || SymbolName.IsEmpty())
+            {
+                return;
+            }
+
+            SymbolName = SymbolName.Replace(TEXT("::"), TEXT("_"));
+            IncludeHints.Add(FString::Printf(TEXT("%s/%s.h"), *ModuleName, *SymbolName));
+        };
+
+        for (const FString& ClassPath : Closure.Classes) AddIncludeHint(ClassPath);
+        for (const FString& StructPath : Closure.Structs) AddIncludeHint(StructPath);
+        for (const FString& EnumPath : Closure.Enums) AddIncludeHint(EnumPath);
+        for (const FString& InterfacePath : Closure.Interfaces) AddIncludeHint(InterfacePath);
+        ClosureJson->SetArrayField(TEXT("includeHints"), BuildStringArray(ToSortedArray(IncludeHints)));
+
         return ClosureJson;
     }
 }
@@ -1171,6 +1247,7 @@ FBS_BlueprintData UBlueprintAnalyzer::AnalyzeBlueprint(UBlueprint* Blueprint)
 
 	// AnimBlueprint-specific extraction
 	ExtractAnimBlueprintData(Blueprint, Data);
+	ExtractUserTypeSchemas(Blueprint, Data);
 	
 	UE_LOG(LogTemp, Warning, TEXT("Blueprint %s analysis complete - Variables: %d, Functions: %d, Components: %d, Nodes: %d, Graphs: %d"), 
 		*Data.BlueprintName, Data.Variables.Num(), Data.Functions.Num(), Data.Components.Num(), Data.TotalNodeCount, Data.StructuredGraphs.Num());
@@ -3732,6 +3809,42 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 		ImportedNamespaceArray.Add(MakeShareable(new FJsonValueString(ImportedNamespace)));
 	}
 	JsonObject->SetArrayField(TEXT("importedNamespaces"), ImportedNamespaceArray);
+
+	TArray<TSharedPtr<FJsonValue>> UserStructSchemaArray;
+	for (const FBS_UserDefinedStructSchema& StructSchema : Data.UserDefinedStructSchemas)
+	{
+		TSharedPtr<FJsonObject> StructObj = MakeShareable(new FJsonObject);
+		StructObj->SetStringField(TEXT("name"), StructSchema.StructName);
+		StructObj->SetStringField(TEXT("path"), StructSchema.StructPath);
+
+		TArray<TSharedPtr<FJsonValue>> FieldArray;
+		for (const FBS_UserDefinedStructFieldSchema& FieldSchema : StructSchema.Fields)
+		{
+			TSharedPtr<FJsonObject> FieldObj = MakeShareable(new FJsonObject);
+			FieldObj->SetStringField(TEXT("name"), FieldSchema.Name);
+			FieldObj->SetStringField(TEXT("type"), FieldSchema.Type);
+			FieldObj->SetStringField(TEXT("typeObjectPath"), FieldSchema.TypeObjectPath);
+			FieldObj->SetBoolField(TEXT("isArray"), FieldSchema.bIsArray);
+			FieldObj->SetBoolField(TEXT("isMap"), FieldSchema.bIsMap);
+			FieldObj->SetBoolField(TEXT("isSet"), FieldSchema.bIsSet);
+			FieldArray.Add(MakeShareable(new FJsonValueObject(FieldObj)));
+		}
+
+		StructObj->SetArrayField(TEXT("fields"), FieldArray);
+		UserStructSchemaArray.Add(MakeShareable(new FJsonValueObject(StructObj)));
+	}
+	JsonObject->SetArrayField(TEXT("userDefinedStructSchemas"), UserStructSchemaArray);
+
+	TArray<TSharedPtr<FJsonValue>> UserEnumSchemaArray;
+	for (const FBS_UserDefinedEnumSchema& EnumSchema : Data.UserDefinedEnumSchemas)
+	{
+		TSharedPtr<FJsonObject> EnumObj = MakeShareable(new FJsonObject);
+		EnumObj->SetStringField(TEXT("name"), EnumSchema.EnumName);
+		EnumObj->SetStringField(TEXT("path"), EnumSchema.EnumPath);
+		EnumObj->SetArrayField(TEXT("enumerators"), BuildStringArray(EnumSchema.Enumerators));
+		UserEnumSchemaArray.Add(MakeShareable(new FJsonValueObject(EnumObj)));
+	}
+	JsonObject->SetArrayField(TEXT("userDefinedEnumSchemas"), UserEnumSchemaArray);
 	
 	TArray<TSharedPtr<FJsonValue>> VariableArray;
 	for (const FString& Variable : Data.Variables)
@@ -5342,6 +5455,225 @@ void UBlueprintAnalyzer::ExtractClassParityData(UBlueprint* Blueprint, FBS_Bluep
 			OutData.ClassDefaultValueDelta.Add(PropertyName, CurrentValue);
 		}
 	}
+}
+
+void UBlueprintAnalyzer::ExtractUserTypeSchemas(UBlueprint* Blueprint, FBS_BlueprintData& OutData)
+{
+	OutData.UserDefinedStructSchemas.Reset();
+	OutData.UserDefinedEnumSchemas.Reset();
+
+	if (!Blueprint)
+	{
+		return;
+	}
+
+	TSet<FString> CandidateStructPaths;
+	TSet<FString> CandidateEnumPaths;
+
+	auto ResolveTypeObject = [](const FString& RawPath) -> UObject*
+	{
+		if (RawPath.IsEmpty())
+		{
+			return nullptr;
+		}
+
+		const FString NormalizedPath = NormalizeObjectPath(RawPath, false);
+		if (NormalizedPath.IsEmpty())
+		{
+			return nullptr;
+		}
+
+		if (UObject* Loaded = TryLoadBestCandidate(NormalizedPath))
+		{
+			return Loaded;
+		}
+
+		if (NormalizedPath.StartsWith(TEXT("/Script/")))
+		{
+			if (UObject* ScriptObject = FindObject<UObject>(nullptr, *NormalizedPath))
+			{
+				return ScriptObject;
+			}
+		}
+
+		return nullptr;
+	};
+
+	auto AddTypeCandidate = [&](const FString& RawPath)
+	{
+		if (UObject* TypeObject = ResolveTypeObject(RawPath))
+		{
+			if (UScriptStruct* StructObject = Cast<UScriptStruct>(TypeObject))
+			{
+				if (StructObject->IsA<UUserDefinedStruct>() || StructObject->GetPathName().StartsWith(TEXT("/Game/")))
+				{
+					CandidateStructPaths.Add(StructObject->GetPathName());
+				}
+			}
+			else if (UEnum* EnumObject = Cast<UEnum>(TypeObject))
+			{
+				if (EnumObject->IsA<UUserDefinedEnum>() || EnumObject->GetPathName().StartsWith(TEXT("/Game/")))
+				{
+					CandidateEnumPaths.Add(EnumObject->GetPathName());
+				}
+			}
+		}
+	};
+
+	auto AddTypeCandidatesFromText = [&](const FString& Text)
+	{
+		TSet<FString> DiscoveredPaths;
+		CollectAssetPathsFromText(Text, DiscoveredPaths);
+		for (const FString& DiscoveredPath : DiscoveredPaths)
+		{
+			AddTypeCandidate(DiscoveredPath);
+		}
+	};
+
+	for (const FBS_VariableInfo& VarInfo : OutData.DetailedVariables)
+	{
+		AddTypeCandidate(VarInfo.TypeObjectPath);
+		AddTypeCandidatesFromText(VarInfo.VariableType);
+	}
+
+	for (const FBS_FunctionInfo& FuncInfo : OutData.DetailedFunctions)
+	{
+		AddTypeCandidate(FuncInfo.ReturnTypeObjectPath);
+		for (const FString& Param : FuncInfo.InputParameters)
+		{
+			AddTypeCandidatesFromText(Param);
+		}
+		for (const FString& Param : FuncInfo.OutputParameters)
+		{
+			AddTypeCandidatesFromText(Param);
+		}
+		for (const FString& LocalVar : FuncInfo.LocalVariables)
+		{
+			AddTypeCandidatesFromText(LocalVar);
+		}
+	}
+
+	for (const FBS_FunctionInfo& DelegateInfo : OutData.DelegateSignatures)
+	{
+		AddTypeCandidate(DelegateInfo.ReturnTypeObjectPath);
+		for (const FString& Param : DelegateInfo.InputParameters)
+		{
+			AddTypeCandidatesFromText(Param);
+		}
+		for (const FString& Param : DelegateInfo.OutputParameters)
+		{
+			AddTypeCandidatesFromText(Param);
+		}
+	}
+
+	for (const FBS_GraphData_Ext& Graph : OutData.StructuredGraphsExt)
+	{
+		for (const FBS_NodeData& Node : Graph.Nodes)
+		{
+			for (const FBS_PinData& Pin : Node.Pins)
+			{
+				AddTypeCandidate(Pin.ObjectPath);
+				AddTypeCandidate(Pin.ValueObjectPath);
+				AddTypeCandidatesFromText(Pin.ObjectType);
+				AddTypeCandidatesFromText(Pin.ValueObjectType);
+			}
+		}
+	}
+
+	TArray<FString> StructPaths = CandidateStructPaths.Array();
+	StructPaths.Sort();
+	for (const FString& StructPath : StructPaths)
+	{
+		UScriptStruct* StructObject = Cast<UScriptStruct>(ResolveTypeObject(StructPath));
+		if (!StructObject)
+		{
+			continue;
+		}
+
+		if (!StructObject->IsA<UUserDefinedStruct>() && !StructObject->GetPathName().StartsWith(TEXT("/Game/")))
+		{
+			continue;
+		}
+
+		FBS_UserDefinedStructSchema StructSchema;
+		StructSchema.StructName = StructObject->GetName();
+		StructSchema.StructPath = StructObject->GetPathName();
+
+		for (TFieldIterator<FProperty> PropIt(StructObject); PropIt; ++PropIt)
+		{
+			FProperty* Property = *PropIt;
+			if (!Property || Property->HasAnyPropertyFlags(CPF_Deprecated))
+			{
+				continue;
+			}
+
+			FBS_UserDefinedStructFieldSchema FieldSchema;
+			FieldSchema.Name = Property->GetName();
+			FieldSchema.Type = DescribePropertyType(Property);
+			FieldSchema.TypeObjectPath = GetPropertyObjectTypePath(Property);
+			FieldSchema.bIsArray = CastField<FArrayProperty>(Property) != nullptr;
+			FieldSchema.bIsMap = CastField<FMapProperty>(Property) != nullptr;
+			FieldSchema.bIsSet = CastField<FSetProperty>(Property) != nullptr;
+			StructSchema.Fields.Add(MoveTemp(FieldSchema));
+		}
+
+		StructSchema.Fields.Sort([](const FBS_UserDefinedStructFieldSchema& A, const FBS_UserDefinedStructFieldSchema& B)
+		{
+			return A.Name < B.Name;
+		});
+
+		OutData.UserDefinedStructSchemas.Add(MoveTemp(StructSchema));
+	}
+
+	TArray<FString> EnumPaths = CandidateEnumPaths.Array();
+	EnumPaths.Sort();
+	for (const FString& EnumPath : EnumPaths)
+	{
+		UEnum* EnumObject = Cast<UEnum>(ResolveTypeObject(EnumPath));
+		if (!EnumObject)
+		{
+			continue;
+		}
+
+		if (!EnumObject->IsA<UUserDefinedEnum>() && !EnumObject->GetPathName().StartsWith(TEXT("/Game/")))
+		{
+			continue;
+		}
+
+		FBS_UserDefinedEnumSchema EnumSchema;
+		EnumSchema.EnumName = EnumObject->GetName();
+		EnumSchema.EnumPath = EnumObject->GetPathName();
+
+		const int32 NumEnums = EnumObject->NumEnums();
+		for (int32 EnumIndex = 0; EnumIndex < NumEnums; ++EnumIndex)
+		{
+			const FString EnumeratorName = EnumObject->GetNameStringByIndex(EnumIndex);
+			if (EnumeratorName.IsEmpty())
+			{
+				continue;
+			}
+
+			if (EnumIndex == NumEnums - 1 && EnumeratorName.EndsWith(TEXT("_MAX")))
+			{
+				continue;
+			}
+
+			EnumSchema.Enumerators.Add(EnumeratorName);
+		}
+
+		EnumSchema.Enumerators.Sort();
+		OutData.UserDefinedEnumSchemas.Add(MoveTemp(EnumSchema));
+	}
+
+	OutData.UserDefinedStructSchemas.Sort([](const FBS_UserDefinedStructSchema& A, const FBS_UserDefinedStructSchema& B)
+	{
+		return A.StructPath < B.StructPath;
+	});
+
+	OutData.UserDefinedEnumSchemas.Sort([](const FBS_UserDefinedEnumSchema& A, const FBS_UserDefinedEnumSchema& B)
+	{
+		return A.EnumPath < B.EnumPath;
+	});
 }
 
 void UBlueprintAnalyzer::ExtractTimelineData(UBlueprint* Blueprint, FBS_BlueprintData& OutData)

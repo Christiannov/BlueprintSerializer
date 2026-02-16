@@ -120,6 +120,26 @@ Batch sampled:
   - exports with non-empty `classDefaultValueDelta`: `419/485`
   - exports with non-empty `dependencyClosure`: `485/485`
 
+## User type schema expansion batch (2026-02-16)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_All_20260216_6/*.json`
+- Manifest: `Saved/BlueprintExports/BP_SLZR_All_20260216_6/BP_SLZR_Manifest_20260216_154433.json`
+- Context smoke output: `Saved/BlueprintSerializer/LLMContext/BP_SLZR_Context_B_Weapon_d2da07c8_20260216_155154.md`
+
+- Full export command succeeds: `BP_SLZR.ExportAllBlueprints Saved/BlueprintExports/BP_SLZR_All_20260216_6` -> `Success: 485, Failed: 0`.
+- Full-batch parseability: `485/485` export files parse as UTF-8 JSON.
+- New user-type/schema fields now emitted and stable in full batch:
+  - `userDefinedStructSchemas`, `userDefinedEnumSchemas`
+  - required-key missing count for this set (including prior parity fields): `0/485`
+- User-defined type schema coverage in this batch:
+  - exports with non-empty `userDefinedStructSchemas`: `42/485` (total extracted fields: `575`)
+  - exports with non-empty `userDefinedEnumSchemas`: `53/485` (total extracted enumerators: `398`)
+- Dependency closure refinement:
+  - `dependencyClosure.includeHints` emitted and non-empty in `485/485` exports.
+  - `dependencyClosure` remains non-empty in `485/485` exports.
+
 ## C++ complete conversion focus (primary)
 
 This section defines the must-have subset for "things usually done in C++".
@@ -156,7 +176,7 @@ Notes:
 | CR-011 | Transition fidelity | Populate full transition fields (blend mode, priority, notify index, etc.) | todo | some fields remain defaults |
 | CR-012 | Notify fidelity | Populate track/event payload (`trackName`, `eventParameters`, etc.) | todo | currently minimal notify payload |
 | CR-013 | Curve fidelity | Add vector/transform/material/morph curve extraction where available | todo | currently float-curve path only |
-| CR-014 | Dependency closure | Emit converter-facing dependency closure manifest (types/modules/includes) | in_progress | `dependencyClosure` now emitted with class/struct/enum/interface/asset/control-rig/module sets; include/module refinement still pending |
+| CR-014 | Dependency closure | Emit converter-facing dependency closure manifest (types/modules/includes) | in_progress | `dependencyClosure` now emits class/struct/enum/interface/asset/control-rig/module sets plus `includeHints`; higher-fidelity include/module mapping still pending |
 | CR-015 | Tooling parity | Implement missing module entrypoints (`BP_SLZR.Serialize`, selected serialize, context generation) | done | wired module commands + implemented `GenerateLLMContext()` |
 | CR-016 | Validation gates | Automate converter-ready gate checks and publish pass/fail report per run | todo | currently manual ad-hoc checks |
 | CR-017 | Legacy path cleanup | Replace/remove `AnalyzeNodeDetails` temporary stub path to avoid partial legacy behavior | todo | `BlueprintAnalyzer.cpp` contains disabled legacy node-analysis stub |
@@ -170,7 +190,7 @@ Notes:
 | CR-025 | Symbol identity | Export fully-qualified paths for parent classes, interfaces, types, and callable owners | in_progress | class/interface/type paths now exported in primary schema |
 | CR-026 | Graph coverage | Include delegate/collapsed/other relevant editable graphs beyond Ubergraph/Function/Macro | in_progress | added delegate/event coverage and construction role tagging |
 | CR-027 | Override semantics | Export explicit override/parent-call semantics for events and overridden functions | in_progress | `bIsOverride`/`bCallsParent` + parent-call node metadata exported |
-| CR-028 | User type schemas | Export user-defined struct/enum schema details required for C++ type generation/mapping | todo | currently only references/typestrings are exported |
+| CR-028 | User type schemas | Export user-defined struct/enum schema details required for C++ type generation/mapping | in_progress | `userDefinedStructSchemas` / `userDefinedEnumSchemas` now emitted; richer defaults/metadata still pending |
 | CR-029 | Declaration specifiers | Export class/property/function specifier-level metadata needed for header generation parity | in_progress | class-level `classSpecifiers` plus variable/function `declarationSpecifiers` now emitted; deeper UHT parity still pending |
 
 ## Minor C++ parity gaps (polish)
@@ -210,3 +230,5 @@ For each completed task:
 - 2026-02-16: Added class/property/function declaration-specifier export (`classSpecifiers`, per-variable and per-function `declarationSpecifiers`) and explicit function `void` return typing for deterministic signature reconstruction.
 - 2026-02-16: Added class default object layers (`classDefaultValues`, `classDefaultValueDelta`) with parent-safe diff extraction and validated on full export batch.
 - 2026-02-16: Added converter-facing `dependencyClosure` object (class/struct/enum/interface/asset/control-rig/module sets) and validated non-empty closure coverage across full export batch (`485/485`).
+- 2026-02-16: Expanded dependency closure output with generated `includeHints` and validated full-batch include-hint coverage (`485/485` non-empty).
+- 2026-02-16: Added user-defined type schema export (`userDefinedStructSchemas`, `userDefinedEnumSchemas`) and validated coverage on full export batch (`42/485` struct-schema exports, `53/485` enum-schema exports).
