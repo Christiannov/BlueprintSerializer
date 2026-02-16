@@ -45,6 +45,53 @@
 #include "UObject/UObjectIterator.h"
 #include "UObject/TopLevelAssetPath.h"
 
+namespace
+{
+	FString MakeSafeArtifactComponent(const FString& Input)
+	{
+		FString Sanitized = Input;
+		Sanitized.TrimStartAndEndInline();
+
+		for (TCHAR& Ch : Sanitized)
+		{
+			if (!FChar::IsAlnum(Ch) && Ch != TEXT('_') && Ch != TEXT('-'))
+			{
+				Ch = TEXT('_');
+			}
+		}
+
+		while (Sanitized.Contains(TEXT("__")))
+		{
+			Sanitized.ReplaceInline(TEXT("__"), TEXT("_"));
+		}
+
+		while (Sanitized.StartsWith(TEXT("_")))
+		{
+			Sanitized.RightChopInline(1, EAllowShrinking::No);
+		}
+
+		while (Sanitized.EndsWith(TEXT("_")))
+		{
+			Sanitized.LeftChopInline(1, EAllowShrinking::No);
+		}
+
+		if (Sanitized.IsEmpty())
+		{
+			Sanitized = TEXT("Blueprint");
+		}
+
+		return Sanitized.Left(64);
+	}
+
+	FString BuildBlueprintArtifactToken(const FString& BlueprintName, const FString& BlueprintPath)
+	{
+		const FString SafeName = MakeSafeArtifactComponent(BlueprintName);
+		const FString IdentityPath = BlueprintPath.IsEmpty() ? BlueprintName : BlueprintPath;
+		const FString PathHash = FMD5::HashAnsiString(*IdentityPath).Left(8);
+		return FString::Printf(TEXT("%s_%s"), *SafeName, *PathHash);
+	}
+}
+
 bool UBlueprintSerializerBlueprintLibrary::SerializeAllProjectBlueprints()
 {
 	return ExportAllProjectBlueprintData();
@@ -272,10 +319,11 @@ bool UBlueprintSerializerBlueprintLibrary::GenerateLLMContext(UBlueprint* Target
 	ContextText += TEXT("\n```\n");
 
 	const FString TimeStamp = UDataExportManager::GetTimestamp();
-	const FString ContextFileName = FString::Printf(TEXT("BP_SLZR_Context_%s_%s.md"), *Data.BlueprintName, *TimeStamp);
+	const FString ArtifactToken = BuildBlueprintArtifactToken(Data.BlueprintName, Data.BlueprintPath);
+	const FString ContextFileName = FString::Printf(TEXT("BP_SLZR_Context_%s_%s.md"), *ArtifactToken, *TimeStamp);
 	const FString ContextFilePath = FPaths::Combine(ExportDir, ContextFileName);
 
-	if (!FFileHelper::SaveStringToFile(ContextText, *ContextFilePath, FFileHelper::EEncodingOptions::AutoDetect))
+	if (!FFileHelper::SaveStringToFile(ContextText, *ContextFilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
 	{
 		UE_LOG(LogTemp, Error, TEXT("GenerateLLMContext: Failed to write context file: %s"), *ContextFilePath);
 		return false;
@@ -368,7 +416,8 @@ FString UBlueprintSerializerBlueprintLibrary::AuditSingleBlueprintToFile(UBluepr
 	FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
 
 	const FString ExportPath = UDataExportManager::GetDefaultExportPath();
-	const FString FileName = FString::Printf(TEXT("BP_SLZR_AUDIT_%s_%s.json"), *Data.BlueprintName, *UDataExportManager::GetTimestamp());
+	const FString ArtifactToken = BuildBlueprintArtifactToken(Data.BlueprintName, Data.BlueprintPath);
+	const FString FileName = FString::Printf(TEXT("BP_SLZR_AUDIT_%s_%s.json"), *ArtifactToken, *UDataExportManager::GetTimestamp());
 	const FString FullPath = FPaths::Combine(ExportPath, FileName);
 
 	if (UBlueprintAnalyzer::SaveBlueprintDataToFile(OutputString, FullPath))
@@ -3321,7 +3370,8 @@ FString UBlueprintSerializerBlueprintLibrary::RoundTripAuditSingleBlueprint(UBlu
 	FJsonSerializer::Serialize(Report.ToSharedRef(), Writer);
 
 	const FString ExportPath = UDataExportManager::GetDefaultExportPath();
-	const FString FileName = FString::Printf(TEXT("BP_SLZR_ROUNDTRIP_%s_%s.json"), *TargetBlueprint->GetName(), *UDataExportManager::GetTimestamp());
+	const FString ArtifactToken = BuildBlueprintArtifactToken(TargetBlueprint->GetName(), TargetBlueprint->GetPathName());
+	const FString FileName = FString::Printf(TEXT("BP_SLZR_ROUNDTRIP_%s_%s.json"), *ArtifactToken, *UDataExportManager::GetTimestamp());
 	const FString FullPath = FPaths::Combine(ExportPath, FileName);
 	if (UBlueprintAnalyzer::SaveBlueprintDataToFile(Output, FullPath))
 	{

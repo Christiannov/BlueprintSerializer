@@ -120,6 +120,18 @@ void FBlueprintExtractorCommands::ExportAllBlueprints(const TArray<FString>& Arg
         ExportDir = FPaths::ProjectSavedDir() / TEXT("BlueprintExports") / TEXT("BP_SLZR_All");
     }
 
+    if (FPaths::IsRelative(ExportDir))
+    {
+        ExportDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), ExportDir);
+    }
+    else
+    {
+        ExportDir = FPaths::ConvertRelativePathToFull(ExportDir);
+    }
+
+    FPaths::NormalizeDirectoryName(ExportDir);
+    FPaths::CollapseRelativeDirectories(ExportDir);
+
     IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
     if (!PlatformFile.DirectoryExists(*ExportDir))
     {

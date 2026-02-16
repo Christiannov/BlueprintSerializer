@@ -70,6 +70,34 @@ Batch sampled:
   - `unsupportedNodeTypes` appears in `4/5` exports (total entries: `6`).
   - `partiallySupportedNodeTypes` appears in `3/5` exports (total entries: `16`).
 
+## Full-project export validation (2026-02-16)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_All_20260216_4/*.json`
+- Manifest: `Saved/BlueprintExports/BP_SLZR_All_20260216_4/BP_SLZR_Manifest_20260216_131825.json`
+
+- Command check: `BP_SLZR.ExportAllBlueprints Saved/BlueprintExports/BP_SLZR_All_20260216_4` completes with `Success: 485, Failed: 0`.
+- Manifest/output parity:
+  - Manifest totals: `total=485`, `successCount=485`, `failCount=0`.
+  - Output files: `485` blueprint JSON files + `1` manifest file.
+- Filename collision fix evidence:
+  - Duplicate asset name `Paint_Pawn` now emits two distinct files via path-hash suffix:
+    - `BP_SLZR_Blueprint_Paint_Pawn_b06cb1e7_20260216_130153.json`
+    - `BP_SLZR_Blueprint_Paint_Pawn_91d07f62_20260216_130154.json`
+- Encoding consistency fix evidence:
+  - UTF-8 parseability across full batch: `0` parse failures (`485/485` parseable as UTF-8 JSON).
+- Converter key stability in full batch:
+  - Required converter-facing keys missing in `0/485` exports.
+  - Checked keys: `parentClassPath`, `generatedClassPath`, `implementedInterfacePaths`, `importedNamespaces`, `delegateSignatures`, `timelines`, `unsupportedNodeTypes`, `partiallySupportedNodeTypes`, `detailedVariables`, `detailedFunctions`, `detailedComponents`, `structuredGraphs`, `coverage`, `graphsSummary`.
+- Additional full-batch metrics:
+  - `unsupportedNodeTypes` appears in `164/485` exports (total entries: `200`).
+  - `partiallySupportedNodeTypes` appears in `241/485` exports (total entries: `1027`).
+  - `detailedFunctions` with non-empty `returnType`: `39/936`.
+  - `detailedComponents` with resolved parent: `314/613`.
+  - `detailedComponents` with asset references: `311/613`.
+  - AnimBP sample in this full batch: `25`; with `animationAssets`: `1/25` (total assets `1`); with `controlRigs`: `3/25` (total rigs `3`).
+
 ## C++ complete conversion focus (primary)
 
 This section defines the must-have subset for "things usually done in C++".
@@ -154,3 +182,6 @@ For each completed task:
 - 2026-02-15: Fixed UE 5.6 compile blockers and deprecations (`SoftObjectProperty` include usage, latent detection without `FUNC_Latent`, `ANY_PACKAGE` call sites, deprecated short-name interface implementation API).
 - 2026-02-15: Expanded smoke validation across AnimBP and tool-heavy Blueprint assets (`ABP_Mannequin_Base`, `B_Tool_Repeater`) and confirmed serialize/context commands produce expected output artifacts.
 - 2026-02-16: Ran extended cross-domain smoke validation batch (`B_LyraGameMode`, `B_Hero_Default`, `B_WeaponFire`, `B_MusicManagerComponent_Base`, `ABP_Weap_Shotgun`) and confirmed converter-key stability (`0/5` missing checked keys) with updated unsupported/partially-supported node matrix evidence.
+- 2026-02-16: Fixed export artifact naming collisions by adding path-hash suffixes to Blueprint/context/audit/roundtrip filenames, preventing overwrites for duplicate Blueprint names from different package paths.
+- 2026-02-16: Standardized export/context file encoding to UTF-8 and validated full-batch parseability (`485/485` JSON files parseable as UTF-8) after prior mixed-encoding observation.
+- 2026-02-16: Re-ran full-project export validation (`BP_SLZR.ExportAllBlueprints`) with parity checks (`successCount=485`, `output files=485`) and updated full-batch converter metrics.

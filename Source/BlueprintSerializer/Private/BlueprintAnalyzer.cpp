@@ -218,6 +218,50 @@ namespace
         return Result;
     }
 
+    FString MakeSafeFileComponent(const FString& Input)
+    {
+        FString Sanitized = Input;
+        Sanitized.TrimStartAndEndInline();
+
+        for (TCHAR& Ch : Sanitized)
+        {
+            if (!FChar::IsAlnum(Ch) && Ch != TEXT('_') && Ch != TEXT('-'))
+            {
+                Ch = TEXT('_');
+            }
+        }
+
+        while (Sanitized.Contains(TEXT("__")))
+        {
+            Sanitized.ReplaceInline(TEXT("__"), TEXT("_"));
+        }
+
+        while (Sanitized.StartsWith(TEXT("_")))
+        {
+            Sanitized.RightChopInline(1, EAllowShrinking::No);
+        }
+
+        while (Sanitized.EndsWith(TEXT("_")))
+        {
+            Sanitized.LeftChopInline(1, EAllowShrinking::No);
+        }
+
+        if (Sanitized.IsEmpty())
+        {
+            Sanitized = TEXT("Blueprint");
+        }
+
+        return Sanitized.Left(64);
+    }
+
+    FString BuildBlueprintArtifactStem(const FBS_BlueprintData& BlueprintData)
+    {
+        const FString SafeName = MakeSafeFileComponent(BlueprintData.BlueprintName);
+        const FString IdentityPath = BlueprintData.BlueprintPath.IsEmpty() ? BlueprintData.BlueprintName : BlueprintData.BlueprintPath;
+        const FString PathHash = FMD5::HashAnsiString(*IdentityPath).Left(8);
+        return FString::Printf(TEXT("%s_%s"), *SafeName, *PathHash);
+    }
+
     TArray<TSharedPtr<FJsonValue>> BuildFloatArray(const TArray<float>& Values)
     {
         TArray<TSharedPtr<FJsonValue>> Result;
@@ -4536,7 +4580,7 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 
 bool UBlueprintAnalyzer::SaveBlueprintDataToFile(const FString& JsonData, const FString& FilePath)
 {
-	return FFileHelper::SaveStringToFile(JsonData, *FilePath, FFileHelper::EEncodingOptions::AutoDetect);
+	return FFileHelper::SaveStringToFile(JsonData, *FilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
 
 bool UBlueprintAnalyzer::ExportSingleBlueprintToJSON(const FString& BlueprintPath, const FString& OutputDirectory)
@@ -4578,6 +4622,19 @@ bool UBlueprintAnalyzer::ExportSingleBlueprintToJSON(const FString& BlueprintPat
 	{
 		ExportDirectory = FPaths::ProjectSavedDir() / TEXT("BlueprintExports");
 	}
+
+	const bool bLooksLikeEngineRelativeProjectPath = ExportDirectory.StartsWith(TEXT("../")) || ExportDirectory.StartsWith(TEXT("..\\"));
+	if (FPaths::IsRelative(ExportDirectory) && !bLooksLikeEngineRelativeProjectPath)
+	{
+		ExportDirectory = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), ExportDirectory);
+	}
+	else
+	{
+		ExportDirectory = FPaths::ConvertRelativePathToFull(ExportDirectory);
+	}
+
+	FPaths::NormalizeDirectoryName(ExportDirectory);
+	FPaths::CollapseRelativeDirectories(ExportDirectory);
 	
 	// Create directory if it doesn't exist
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
@@ -4587,8 +4644,9 @@ bool UBlueprintAnalyzer::ExportSingleBlueprintToJSON(const FString& BlueprintPat
 	}
 	
 	// Generate filename with timestamp
-	FString FileName = FString::Printf(TEXT("BP_SLZR_Blueprint_%s_%s.json"), 
-		*BlueprintData.BlueprintName, 
+	const FString ArtifactStem = BuildBlueprintArtifactStem(BlueprintData);
+	FString FileName = FString::Printf(TEXT("BP_SLZR_Blueprint_%s_%s.json"),
+		*ArtifactStem,
 		*FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")));
 	
 	FString FullFilePath = ExportDirectory / FileName;
