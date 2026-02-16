@@ -235,8 +235,7 @@ void FBlueprintSerializerModule::RegisterConsoleCommands()
 			const UBlueprintSerializerSettings* Settings = GetDefault<UBlueprintSerializerSettings>();
 			if (!Settings->bGenerateLLMContext)
 			{
-				UE_LOG(LogBlueprintSerializer, Warning, TEXT("LLM context generation is disabled in settings"));
-				return;
+				UE_LOG(LogBlueprintSerializer, Warning, TEXT("LLM context generation is disabled in settings; proceeding because command was invoked explicitly"));
 			}
 			
 			FString BlueprintPath = Args[0];

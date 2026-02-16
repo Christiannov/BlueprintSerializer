@@ -43,12 +43,7 @@
 #include "Engine/UserDefinedEnum.h"
 #include "StructUtils/UserDefinedStruct.h"
 #include "UObject/UObjectIterator.h"
-
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 7
-#ifndef ANY_PACKAGE
-#define ANY_PACKAGE nullptr
-#endif
-#endif
+#include "UObject/TopLevelAssetPath.h"
 
 bool UBlueprintSerializerBlueprintLibrary::SerializeAllProjectBlueprints()
 {
@@ -398,6 +393,79 @@ namespace
 
 	static TSharedPtr<FJsonObject> JsonValueAsObject(const TSharedPtr<FJsonValue>& Value);
 
+	template <typename TObjectType>
+	static TObjectType* FindLoadedObjectByNameOrPath(const FString& NameOrPath)
+	{
+		if (NameOrPath.IsEmpty())
+		{
+			return nullptr;
+		}
+
+		for (TObjectIterator<TObjectType> It; It; ++It)
+		{
+			TObjectType* Candidate = *It;
+			if (!Candidate)
+			{
+				continue;
+			}
+
+			if (Candidate->GetName() == NameOrPath || Candidate->GetPathName() == NameOrPath)
+			{
+				return Candidate;
+			}
+		}
+
+		return nullptr;
+	}
+
+	static UEnum* FindLoadedEnumByNameOrPath(const FString& EnumName)
+	{
+		if (EnumName.IsEmpty())
+		{
+			return nullptr;
+		}
+
+		for (TObjectIterator<UEnum> It; It; ++It)
+		{
+			UEnum* Candidate = *It;
+			if (!Candidate)
+			{
+				continue;
+			}
+
+			if (Candidate->GetName() == EnumName || Candidate->GetPathName() == EnumName)
+			{
+				return Candidate;
+			}
+		}
+
+		return nullptr;
+	}
+
+	static UScriptStruct* FindLoadedStructByNameOrPath(const FString& StructName)
+	{
+		if (StructName.IsEmpty())
+		{
+			return nullptr;
+		}
+
+		for (TObjectIterator<UScriptStruct> It; It; ++It)
+		{
+			UScriptStruct* Candidate = *It;
+			if (!Candidate)
+			{
+				continue;
+			}
+
+			if (Candidate->GetName() == StructName || Candidate->GetPathName() == StructName)
+			{
+				return Candidate;
+			}
+		}
+
+		return nullptr;
+	}
+
 	static UClass* FindClassByNameOrPath(const FString& ClassNameOrPath)
 	{
 		if (ClassNameOrPath.IsEmpty())
@@ -405,10 +473,23 @@ namespace
 			return nullptr;
 		}
 
-		UClass* Found = FindObject<UClass>(ANY_PACKAGE, *ClassNameOrPath);
+		if (UClass* FoundByType = UClass::TryFindTypeSlow<UClass>(ClassNameOrPath))
+		{
+			return FoundByType;
+		}
+
+		UClass* Found = FindLoadedObjectByNameOrPath<UClass>(ClassNameOrPath);
 		if (Found)
 		{
 			return Found;
+		}
+
+		if (ClassNameOrPath.StartsWith(TEXT("/")))
+		{
+			if (UClass* Loaded = LoadObject<UClass>(nullptr, *ClassNameOrPath))
+			{
+				return Loaded;
+			}
 		}
 
 		return LoadObject<UClass>(nullptr, *ClassNameOrPath);
@@ -503,9 +584,22 @@ namespace
 			return nullptr;
 		}
 
-		if (UObject* Found = FindObject<UObject>(ANY_PACKAGE, *EnumName))
+		if (UEnum* FoundByType = UClass::TryFindTypeSlow<UEnum>(EnumName))
+		{
+			return FoundByType;
+		}
+
+		if (UEnum* Found = FindLoadedEnumByNameOrPath(EnumName))
 		{
 			return Found;
+		}
+
+		if (EnumName.StartsWith(TEXT("/")))
+		{
+			if (UObject* Loaded = StaticLoadObject(UObject::StaticClass(), nullptr, *EnumName))
+			{
+				return Loaded;
+			}
 		}
 
 		return FindAssetByName(EnumName, UUserDefinedEnum::StaticClass()->GetClassPathName());
@@ -518,9 +612,22 @@ namespace
 			return nullptr;
 		}
 
-		if (UObject* Found = FindObject<UObject>(ANY_PACKAGE, *StructName))
+		if (UScriptStruct* FoundByType = UClass::TryFindTypeSlow<UScriptStruct>(StructName))
+		{
+			return FoundByType;
+		}
+
+		if (UScriptStruct* Found = FindLoadedStructByNameOrPath(StructName))
 		{
 			return Found;
+		}
+
+		if (StructName.StartsWith(TEXT("/")))
+		{
+			if (UObject* Loaded = StaticLoadObject(UObject::StaticClass(), nullptr, *StructName))
+			{
+				return Loaded;
+			}
 		}
 
 		return FindAssetByName(StructName, UUserDefinedStruct::StaticClass()->GetClassPathName());
@@ -1241,7 +1348,7 @@ namespace
 			}
 		}
 
-		UClass* NodeClass = FindObject<UClass>(ANY_PACKAGE, *NodeType);
+		UClass* NodeClass = FindClassByNameOrPath(NodeType);
 		if (!NodeClass)
 		{
 			Unsupported.Add(NodeType);
@@ -1881,9 +1988,28 @@ namespace
 			PinObj->TryGetStringField(TEXT("objectType"), ObjectType);
 			if (!ObjectType.IsEmpty())
 			{
-				if (UObject* Obj = FindObject<UObject>(ANY_PACKAGE, *ObjectType))
+				if (UClass* ObjClass = UClass::TryFindTypeSlow<UClass>(ObjectType))
+				{
+					PinType.PinSubCategoryObject = ObjClass;
+				}
+				else if (UEnum* ObjEnum = UClass::TryFindTypeSlow<UEnum>(ObjectType))
+				{
+					PinType.PinSubCategoryObject = ObjEnum;
+				}
+				else if (UScriptStruct* ObjStruct = UClass::TryFindTypeSlow<UScriptStruct>(ObjectType))
+				{
+					PinType.PinSubCategoryObject = ObjStruct;
+				}
+				else if (UObject* Obj = FindLoadedObjectByNameOrPath<UClass>(ObjectType))
 				{
 					PinType.PinSubCategoryObject = Obj;
+				}
+				else if (ObjectType.StartsWith(TEXT("/")))
+				{
+					if (UObject* ObjFromPath = StaticLoadObject(UObject::StaticClass(), nullptr, *ObjectType))
+					{
+						PinType.PinSubCategoryObject = ObjFromPath;
+					}
 				}
 			}
 		}
@@ -2497,6 +2623,30 @@ FString UBlueprintSerializerBlueprintLibrary::RoundTripAuditSingleBlueprint(UBlu
 	}
 
 	// Implement interfaces before graph reconstruction
+	const TArray<TSharedPtr<FJsonValue>>* InterfacePathsJson = nullptr;
+	if (Root->TryGetArrayField(TEXT("implementedInterfacePaths"), InterfacePathsJson) && InterfacePathsJson)
+	{
+		for (const TSharedPtr<FJsonValue>& IfaceVal : *InterfacePathsJson)
+		{
+			if (!IfaceVal.IsValid() || IfaceVal->Type != EJson::String)
+			{
+				continue;
+			}
+
+			const FString InterfacePathString = IfaceVal->AsString();
+			if (InterfacePathString.IsEmpty())
+			{
+				continue;
+			}
+
+			const FTopLevelAssetPath InterfaceAssetPath(InterfacePathString);
+			if (InterfaceAssetPath.IsValid())
+			{
+				FBlueprintEditorUtils::ImplementNewInterface(TempBP, InterfaceAssetPath);
+			}
+		}
+	}
+
 	const TArray<TSharedPtr<FJsonValue>>* InterfacesJson = nullptr;
 	if (Root->TryGetArrayField(TEXT("implementedInterfaces"), InterfacesJson) && InterfacesJson)
 	{
@@ -2509,7 +2659,10 @@ FString UBlueprintSerializerBlueprintLibrary::RoundTripAuditSingleBlueprint(UBlu
 			const FString IfaceName = IfaceVal->AsString();
 			if (!IfaceName.IsEmpty())
 			{
-				FBlueprintEditorUtils::ImplementNewInterface(TempBP, *IfaceName);
+				if (UClass* InterfaceClass = FindClassBySimpleName(IfaceName))
+				{
+					FBlueprintEditorUtils::ImplementNewInterface(TempBP, InterfaceClass->GetClassPathName());
+				}
 			}
 		}
 	}
