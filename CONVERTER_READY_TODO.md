@@ -2,7 +2,7 @@
 
 Live tracker for closing gaps in `CONVERTER_READY_EXTRACTION_SPEC.md`.
 
-Last updated: 2026-02-15
+Last updated: 2026-02-16
 Owner: BlueprintSerializer team
 
 ## Status legend
@@ -45,6 +45,30 @@ Export batch sampled: `Saved/BlueprintExports/*_20260214_1305*.json`
   - `parentClassPath`, `generatedClassPath`, `implementedInterfacePaths`, `importedNamespaces`
   - `delegateSignatures`, `timelines`, `unsupportedNodeTypes`, `partiallySupportedNodeTypes`
   - enriched `detailedVariables` / `detailedFunctions` / `detailedComponents` metadata
+
+## Extended smoke validation batch (2026-02-16)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_Blueprint_*_20260216_11*.json` (`5` files)
+- `Saved/BlueprintSerializer/LLMContext/BP_SLZR_Context_*_20260216_11*.md` (`3` files)
+
+- Command re-check: `BP_SLZR.Count` reports `Found 485 Blueprints in project`.
+- Additional serialize checks succeed and write:
+  - `Saved/BlueprintExports/BP_SLZR_Blueprint_B_LyraGameMode_20260216_110049.json`
+  - `Saved/BlueprintExports/BP_SLZR_Blueprint_B_Hero_Default_20260216_110358.json`
+  - `Saved/BlueprintExports/BP_SLZR_Blueprint_B_WeaponFire_20260216_110735.json`
+  - `Saved/BlueprintExports/BP_SLZR_Blueprint_B_MusicManagerComponent_Base_20260216_111114.json`
+  - `Saved/BlueprintExports/BP_SLZR_Blueprint_ABP_Weap_Shotgun_20260216_111451.json`
+- Additional context checks succeed and write:
+  - `Saved/BlueprintSerializer/LLMContext/BP_SLZR_Context_B_Hero_Default_20260216_111831.md`
+  - `Saved/BlueprintSerializer/LLMContext/BP_SLZR_Context_ABP_Weap_Shotgun_20260216_112210.md`
+  - `Saved/BlueprintSerializer/LLMContext/BP_SLZR_Context_B_LyraGameMode_20260216_112546.md`
+- Converter key stability in this batch: required converter-facing keys missing in `0/5` exports.
+  - Checked keys: `parentClassPath`, `generatedClassPath`, `implementedInterfacePaths`, `importedNamespaces`, `delegateSignatures`, `timelines`, `unsupportedNodeTypes`, `partiallySupportedNodeTypes`, `detailedVariables`, `detailedFunctions`, `detailedComponents`.
+- Node support matrix signal in this batch:
+  - `unsupportedNodeTypes` appears in `4/5` exports (total entries: `6`).
+  - `partiallySupportedNodeTypes` appears in `3/5` exports (total entries: `16`).
 
 ## C++ complete conversion focus (primary)
 
@@ -129,3 +153,4 @@ For each completed task:
 - 2026-02-15: Wired `BP_SLZR.Serialize`, selected serialize menu action, and `BP_SLZR.GenerateContext`; implemented markdown LLM context generation with embedded JSON and validated via B_Weapon smoke export/context outputs.
 - 2026-02-15: Fixed UE 5.6 compile blockers and deprecations (`SoftObjectProperty` include usage, latent detection without `FUNC_Latent`, `ANY_PACKAGE` call sites, deprecated short-name interface implementation API).
 - 2026-02-15: Expanded smoke validation across AnimBP and tool-heavy Blueprint assets (`ABP_Mannequin_Base`, `B_Tool_Repeater`) and confirmed serialize/context commands produce expected output artifacts.
+- 2026-02-16: Ran extended cross-domain smoke validation batch (`B_LyraGameMode`, `B_Hero_Default`, `B_WeaponFire`, `B_MusicManagerComponent_Base`, `ABP_Weap_Shotgun`) and confirmed converter-key stability (`0/5` missing checked keys) with updated unsupported/partially-supported node matrix evidence.
