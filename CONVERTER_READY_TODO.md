@@ -98,6 +98,28 @@ Batch sampled:
   - `detailedComponents` with asset references: `311/613`.
   - AnimBP sample in this full batch: `25`; with `animationAssets`: `1/25` (total assets `1`); with `controlRigs`: `3/25` (total rigs `3`).
 
+## Semantic parity expansion batch (2026-02-16)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_All_20260216_5/*.json`
+- Manifest: `Saved/BlueprintExports/BP_SLZR_All_20260216_5/BP_SLZR_Manifest_20260216_151457.json`
+- Spot-check single export: `Saved/BlueprintExports/BP_SLZR_Blueprint_B_Weapon_d2da07c8_20260216_150932.json`
+
+- Full export command succeeds: `BP_SLZR.ExportAllBlueprints Saved/BlueprintExports/BP_SLZR_All_20260216_5` -> `Success: 485, Failed: 0`.
+- Full-batch parseability: `485/485` export files parse as UTF-8 JSON.
+- New parity fields now emitted and stable in full batch:
+  - `classSpecifiers`, `classConfigName`, `classDefaultValues`, `classDefaultValueDelta`, `dependencyClosure`
+  - required-key missing count for this set: `0/485`
+- Declaration/specifier coverage in this batch:
+  - `detailedVariables` with non-empty `declarationSpecifiers`: `3133/3133`
+  - `detailedFunctions` with non-empty `declarationSpecifiers`: `936/936`
+  - `detailedFunctions` with explicit `returnType` populated (`void` included): `936/936`
+- Class default / dependency closure coverage:
+  - exports with non-empty `classDefaultValues`: `461/485`
+  - exports with non-empty `classDefaultValueDelta`: `419/485`
+  - exports with non-empty `dependencyClosure`: `485/485`
+
 ## C++ complete conversion focus (primary)
 
 This section defines the must-have subset for "things usually done in C++".
@@ -109,7 +131,7 @@ We should treat these as blocking items before calling the serializer C++-comple
 | CXX-002 | Lossless type/signature model (params/returns/containers/object paths) | CR-007, CR-022, CR-025 | in_progress |
 | CXX-003 | Runtime semantics parity (RPC/replication/authority/delegates/latent/timeline) | CR-008, CR-019, CR-020 | in_progress |
 | CXX-004 | Class defaults + component hierarchy/defaults/overrides parity | CR-009, CR-010, CR-023, CR-024 | in_progress |
-| CXX-005 | Symbol/dependency closure for generated C++ includes/modules | CR-014, CR-025, CR-028 | todo |
+| CXX-005 | Symbol/dependency closure for generated C++ includes/modules | CR-014, CR-025, CR-028 | in_progress |
 | CXX-006 | Function implementation parity for real project patterns | CR-021, CR-027 | in_progress |
 | CXX-007 | UPROPERTY/UFUNCTION/class specifier parity for generated C++ declarations | CR-023, CR-029 | in_progress |
 | CXX-008 | Unsupported/custom node fallback path for correctness | CR-035, CR-037 | in_progress |
@@ -134,7 +156,7 @@ Notes:
 | CR-011 | Transition fidelity | Populate full transition fields (blend mode, priority, notify index, etc.) | todo | some fields remain defaults |
 | CR-012 | Notify fidelity | Populate track/event payload (`trackName`, `eventParameters`, etc.) | todo | currently minimal notify payload |
 | CR-013 | Curve fidelity | Add vector/transform/material/morph curve extraction where available | todo | currently float-curve path only |
-| CR-014 | Dependency closure | Emit converter-facing dependency closure manifest (types/modules/includes) | todo | needed for deterministic codegen |
+| CR-014 | Dependency closure | Emit converter-facing dependency closure manifest (types/modules/includes) | in_progress | `dependencyClosure` now emitted with class/struct/enum/interface/asset/control-rig/module sets; include/module refinement still pending |
 | CR-015 | Tooling parity | Implement missing module entrypoints (`BP_SLZR.Serialize`, selected serialize, context generation) | done | wired module commands + implemented `GenerateLLMContext()` |
 | CR-016 | Validation gates | Automate converter-ready gate checks and publish pass/fail report per run | todo | currently manual ad-hoc checks |
 | CR-017 | Legacy path cleanup | Replace/remove `AnalyzeNodeDetails` temporary stub path to avoid partial legacy behavior | todo | `BlueprintAnalyzer.cpp` contains disabled legacy node-analysis stub |
@@ -144,12 +166,12 @@ Notes:
 | CR-021 | Function locals | Extract function-local variable declarations/defaults/scopes from function entry metadata | in_progress | local variable declarations now exported |
 | CR-022 | Type fidelity | Export full variable type model (container kind, key/value type, object/class path) for member vars/functions | in_progress | added category/subcategory/object-path/container flags |
 | CR-023 | Class/component overrides | Export inheritable component overrides and class-level config flags relevant to generated C++ | todo | needed for parent/child parity |
-| CR-024 | Class defaults | Export class default object (CDO) property delta for converter-visible gameplay settings | todo | variable defaults alone are insufficient for full constructor parity |
+| CR-024 | Class defaults | Export class default object (CDO) property delta for converter-visible gameplay settings | in_progress | `classDefaultValues` + `classDefaultValueDelta` now emitted; filtering/scope tuning still pending |
 | CR-025 | Symbol identity | Export fully-qualified paths for parent classes, interfaces, types, and callable owners | in_progress | class/interface/type paths now exported in primary schema |
 | CR-026 | Graph coverage | Include delegate/collapsed/other relevant editable graphs beyond Ubergraph/Function/Macro | in_progress | added delegate/event coverage and construction role tagging |
 | CR-027 | Override semantics | Export explicit override/parent-call semantics for events and overridden functions | in_progress | `bIsOverride`/`bCallsParent` + parent-call node metadata exported |
 | CR-028 | User type schemas | Export user-defined struct/enum schema details required for C++ type generation/mapping | todo | currently only references/typestrings are exported |
-| CR-029 | Declaration specifiers | Export class/property/function specifier-level metadata needed for header generation parity | todo | partial flags exist today; full declaration fidelity is not exported |
+| CR-029 | Declaration specifiers | Export class/property/function specifier-level metadata needed for header generation parity | in_progress | class-level `classSpecifiers` plus variable/function `declarationSpecifiers` now emitted; deeper UHT parity still pending |
 
 ## Minor C++ parity gaps (polish)
 
@@ -185,3 +207,6 @@ For each completed task:
 - 2026-02-16: Fixed export artifact naming collisions by adding path-hash suffixes to Blueprint/context/audit/roundtrip filenames, preventing overwrites for duplicate Blueprint names from different package paths.
 - 2026-02-16: Standardized export/context file encoding to UTF-8 and validated full-batch parseability (`485/485` JSON files parseable as UTF-8) after prior mixed-encoding observation.
 - 2026-02-16: Re-ran full-project export validation (`BP_SLZR.ExportAllBlueprints`) with parity checks (`successCount=485`, `output files=485`) and updated full-batch converter metrics.
+- 2026-02-16: Added class/property/function declaration-specifier export (`classSpecifiers`, per-variable and per-function `declarationSpecifiers`) and explicit function `void` return typing for deterministic signature reconstruction.
+- 2026-02-16: Added class default object layers (`classDefaultValues`, `classDefaultValueDelta`) with parent-safe diff extraction and validated on full export batch.
+- 2026-02-16: Added converter-facing `dependencyClosure` object (class/struct/enum/interface/asset/control-rig/module sets) and validated non-empty closure coverage across full export batch (`485/485`).

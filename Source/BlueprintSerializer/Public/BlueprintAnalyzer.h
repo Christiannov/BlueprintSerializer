@@ -84,6 +84,9 @@ struct BLUEPRINTSERIALIZER_API FBS_VariableInfo
 
 	UPROPERTY()
 	bool bIsSet = false;
+
+	UPROPERTY()
+	TArray<FString> DeclarationSpecifiers;
 };
 
 /**
@@ -229,6 +232,9 @@ struct BLUEPRINTSERIALIZER_API FBS_FunctionInfo
 	
 	UPROPERTY()
 	FString AccessSpecifier; // "public", "protected", "private"
+
+	UPROPERTY()
+	TArray<FString> DeclarationSpecifiers;
 };
 
 USTRUCT(BlueprintType)
@@ -853,6 +859,18 @@ struct BLUEPRINTSERIALIZER_API FBS_BlueprintData
 
 	UPROPERTY()
 	TArray<FString> ImportedNamespaces;
+
+	UPROPERTY()
+	TArray<FString> ClassSpecifiers;
+
+	UPROPERTY()
+	FString ClassConfigName;
+
+	UPROPERTY()
+	TMap<FString, FString> ClassDefaultValues;
+
+	UPROPERTY()
+	TMap<FString, FString> ClassDefaultValueDelta;
 	
 	// Enhanced detailed information
 	UPROPERTY()
@@ -1033,6 +1051,7 @@ private:
 	 * Extract Blueprint metadata and settings
 	 */
 	static void ExtractBlueprintMetadata(UBlueprint* Blueprint, FBS_BlueprintData& OutData);
+	static void ExtractClassParityData(UBlueprint* Blueprint, FBS_BlueprintData& OutData);
 	static void ExtractTimelineData(UBlueprint* Blueprint, FBS_BlueprintData& OutData);
 	
 	/**

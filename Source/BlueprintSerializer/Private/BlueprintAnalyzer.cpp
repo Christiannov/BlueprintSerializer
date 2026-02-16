@@ -794,6 +794,289 @@ namespace
 
         return Variable.DefaultValue;
     }
+
+    struct FBS_DependencyClosureData
+    {
+        TSet<FString> Classes;
+        TSet<FString> Structs;
+        TSet<FString> Enums;
+        TSet<FString> Interfaces;
+        TSet<FString> Assets;
+        TSet<FString> ControlRigs;
+        TSet<FString> Modules;
+    };
+
+    TArray<FString> ToSortedArray(const TSet<FString>& Values)
+    {
+        TArray<FString> Result = Values.Array();
+        Result.Sort();
+        return Result;
+    }
+
+    void AddModuleFromPath(const FString& ObjectPath, TSet<FString>& OutModules)
+    {
+        if (!ObjectPath.StartsWith(TEXT("/Script/")))
+        {
+            return;
+        }
+
+        const FString ScriptPart = ObjectPath.Mid(8);
+        FString ModuleName;
+        if (ScriptPart.Split(TEXT("."), &ModuleName, nullptr) && !ModuleName.IsEmpty())
+        {
+            OutModules.Add(ModuleName);
+        }
+    }
+
+    void AddDependencyPath(const FString& RawPath, FBS_DependencyClosureData& OutClosure)
+    {
+        TArray<FString> Candidates;
+        auto AddCandidate = [&Candidates](const FString& Candidate)
+        {
+            if (!Candidate.IsEmpty() && !Candidates.Contains(Candidate))
+            {
+                Candidates.Add(Candidate);
+            }
+        };
+
+        AddCandidate(NormalizeObjectPath(RawPath, false));
+        AddCandidate(NormalizeObjectPath(RawPath, true));
+
+        for (const FString& Candidate : Candidates)
+        {
+            if (Candidate.IsEmpty())
+            {
+                continue;
+            }
+
+            if (Candidate.StartsWith(TEXT("/Script/")))
+            {
+                OutClosure.Classes.Add(Candidate);
+                AddModuleFromPath(Candidate, OutClosure.Modules);
+                continue;
+            }
+
+            if (!IsContentObjectPath(Candidate))
+            {
+                continue;
+            }
+
+            OutClosure.Assets.Add(Candidate);
+            if (Candidate.Contains(TEXT("ControlRig")) || Candidate.Contains(TEXT("/ControlRig/")))
+            {
+                OutClosure.ControlRigs.Add(Candidate);
+            }
+
+            UObject* Loaded = TryLoadBestCandidate(Candidate);
+            if (!Loaded)
+            {
+                continue;
+            }
+
+            if (UClass* ClassObj = Cast<UClass>(Loaded))
+            {
+                const FString ClassPath = ClassObj->GetPathName();
+                if (ClassObj->HasAnyClassFlags(CLASS_Interface))
+                {
+                    OutClosure.Interfaces.Add(ClassPath);
+                }
+                else
+                {
+                    OutClosure.Classes.Add(ClassPath);
+                }
+
+                AddModuleFromPath(ClassPath, OutClosure.Modules);
+            }
+            else if (UScriptStruct* StructObj = Cast<UScriptStruct>(Loaded))
+            {
+                const FString StructPath = StructObj->GetPathName();
+                OutClosure.Structs.Add(StructPath);
+                AddModuleFromPath(StructPath, OutClosure.Modules);
+            }
+            else if (UEnum* EnumObj = Cast<UEnum>(Loaded))
+            {
+                const FString EnumPath = EnumObj->GetPathName();
+                OutClosure.Enums.Add(EnumPath);
+                AddModuleFromPath(EnumPath, OutClosure.Modules);
+            }
+            else if (UClass* LoadedClass = Loaded->GetClass())
+            {
+                const FString LoadedClassPath = LoadedClass->GetPathName();
+                OutClosure.Classes.Add(LoadedClassPath);
+                AddModuleFromPath(LoadedClassPath, OutClosure.Modules);
+            }
+        }
+    }
+
+    void AddDependencyText(const FString& Text, FBS_DependencyClosureData& OutClosure)
+    {
+        if (Text.IsEmpty())
+        {
+            return;
+        }
+
+        TSet<FString> DiscoveredPaths;
+        CollectAssetPathsFromText(Text, DiscoveredPaths);
+        for (const FString& Path : DiscoveredPaths)
+        {
+            AddDependencyPath(Path, OutClosure);
+        }
+    }
+
+    FBS_DependencyClosureData BuildDependencyClosure(const FBS_BlueprintData& Data)
+    {
+        FBS_DependencyClosureData Closure;
+
+        AddDependencyPath(Data.ParentClassPath, Closure);
+        AddDependencyPath(Data.GeneratedClassPath, Closure);
+
+        for (const FString& InterfacePath : Data.ImplementedInterfacePaths)
+        {
+            AddDependencyPath(InterfacePath, Closure);
+            if (!InterfacePath.IsEmpty())
+            {
+                Closure.Interfaces.Add(InterfacePath);
+            }
+        }
+
+        for (const FBS_VariableInfo& Var : Data.DetailedVariables)
+        {
+            AddDependencyPath(Var.TypeObjectPath, Closure);
+            AddDependencyText(Var.VariableType, Closure);
+            AddDependencyText(Var.DefaultValue, Closure);
+        }
+
+        for (const FBS_FunctionInfo& Func : Data.DetailedFunctions)
+        {
+            AddDependencyPath(Func.ReturnTypeObjectPath, Closure);
+            AddDependencyText(Func.FunctionPath, Closure);
+            AddDependencyText(Func.ReturnType, Closure);
+
+            for (const FString& Param : Func.InputParameters)
+            {
+                AddDependencyText(Param, Closure);
+            }
+
+            for (const FString& Param : Func.OutputParameters)
+            {
+                AddDependencyText(Param, Closure);
+            }
+
+            for (const FString& LocalVar : Func.LocalVariables)
+            {
+                AddDependencyText(LocalVar, Closure);
+            }
+        }
+
+        for (const FBS_FunctionInfo& Delegate : Data.DelegateSignatures)
+        {
+            AddDependencyPath(Delegate.ReturnTypeObjectPath, Closure);
+            AddDependencyText(Delegate.FunctionPath, Closure);
+            AddDependencyText(Delegate.ReturnType, Closure);
+            for (const FString& Param : Delegate.InputParameters)
+            {
+                AddDependencyText(Param, Closure);
+            }
+            for (const FString& Param : Delegate.OutputParameters)
+            {
+                AddDependencyText(Param, Closure);
+            }
+        }
+
+        for (const FBS_ComponentInfo& Component : Data.DetailedComponents)
+        {
+            AddDependencyPath(Component.ComponentClass, Closure);
+            AddDependencyText(Component.ParentOwnerClassName, Closure);
+
+            for (const FString& Property : Component.ComponentProperties)
+            {
+                AddDependencyText(Property, Closure);
+            }
+
+            for (const FString& AssetRef : Component.AssetReferences)
+            {
+                AddDependencyPath(AssetRef, Closure);
+            }
+        }
+
+        for (const FString& AssetRef : Data.AssetReferences)
+        {
+            AddDependencyPath(AssetRef, Closure);
+        }
+
+        for (const FBS_TimelineData& Timeline : Data.Timelines)
+        {
+            AddDependencyText(Timeline.UpdateFunctionName, Closure);
+            AddDependencyText(Timeline.FinishedFunctionName, Closure);
+
+            for (const FBS_TimelineTrackData& Track : Timeline.Tracks)
+            {
+                AddDependencyPath(Track.CurvePath, Closure);
+                AddDependencyText(Track.PropertyName, Closure);
+                AddDependencyText(Track.FunctionName, Closure);
+            }
+        }
+
+        for (const FBS_AnimAssetData& AnimAsset : Data.AnimationAssets)
+        {
+            AddDependencyPath(AnimAsset.AssetPath, Closure);
+            AddDependencyPath(AnimAsset.SkeletonPath, Closure);
+            AddDependencyPath(AnimAsset.BlendSpaceData.BlendSpaceName, Closure);
+            AddDependencyPath(AnimAsset.BlendSpaceData.BlendSpaceType, Closure);
+        }
+
+        for (const FBS_ControlRigData& Rig : Data.ControlRigs)
+        {
+            AddDependencyPath(Rig.SkeletonPath, Closure);
+            AddDependencyText(Rig.RigName, Closure);
+            for (const TPair<FString, FString>& Pair : Rig.RigProperties)
+            {
+                AddDependencyText(Pair.Key, Closure);
+                AddDependencyText(Pair.Value, Closure);
+            }
+        }
+
+        for (const FBS_GraphData_Ext& Graph : Data.StructuredGraphsExt)
+        {
+            for (const FBS_NodeData& Node : Graph.Nodes)
+            {
+                AddDependencyText(Node.MemberParent, Closure);
+                AddDependencyText(Node.MemberName, Closure);
+
+                for (const TPair<FString, FString>& Pair : Node.NodeProperties)
+                {
+                    AddDependencyText(Pair.Key, Closure);
+                    AddDependencyText(Pair.Value, Closure);
+                }
+
+                for (const FBS_PinData& Pin : Node.Pins)
+                {
+                    AddDependencyPath(Pin.ObjectPath, Closure);
+                    AddDependencyPath(Pin.DefaultObjectPath, Closure);
+                    AddDependencyPath(Pin.ValueObjectPath, Closure);
+                    AddDependencyText(Pin.ObjectType, Closure);
+                    AddDependencyText(Pin.ValueObjectType, Closure);
+                }
+            }
+        }
+
+        return Closure;
+    }
+
+    TSharedPtr<FJsonObject> BuildDependencyClosureJson(const FBS_BlueprintData& Data)
+    {
+        const FBS_DependencyClosureData Closure = BuildDependencyClosure(Data);
+
+        TSharedPtr<FJsonObject> ClosureJson = MakeShareable(new FJsonObject);
+        ClosureJson->SetArrayField(TEXT("classPaths"), BuildStringArray(ToSortedArray(Closure.Classes)));
+        ClosureJson->SetArrayField(TEXT("structPaths"), BuildStringArray(ToSortedArray(Closure.Structs)));
+        ClosureJson->SetArrayField(TEXT("enumPaths"), BuildStringArray(ToSortedArray(Closure.Enums)));
+        ClosureJson->SetArrayField(TEXT("interfacePaths"), BuildStringArray(ToSortedArray(Closure.Interfaces)));
+        ClosureJson->SetArrayField(TEXT("assetPaths"), BuildStringArray(ToSortedArray(Closure.Assets)));
+        ClosureJson->SetArrayField(TEXT("controlRigPaths"), BuildStringArray(ToSortedArray(Closure.ControlRigs)));
+        ClosureJson->SetArrayField(TEXT("moduleNames"), BuildStringArray(ToSortedArray(Closure.Modules)));
+        return ClosureJson;
+    }
 }
 
 FBS_BlueprintData UBlueprintAnalyzer::AnalyzeBlueprint(UBlueprint* Blueprint)
@@ -820,6 +1103,7 @@ FBS_BlueprintData UBlueprintAnalyzer::AnalyzeBlueprint(UBlueprint* Blueprint)
 	
 	// Extract Blueprint metadata and settings
 	ExtractBlueprintMetadata(Blueprint, Data);
+	ExtractClassParityData(Blueprint, Data);
 	
 	// Extract detailed Blueprint data
 	Data.ImplementedInterfaces = ExtractImplementedInterfaces(Blueprint);
@@ -3408,6 +3692,11 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 	JsonObject->SetStringField(TEXT("blueprintNamespace"), Data.BlueprintNamespace);
 	JsonObject->SetNumberField(TEXT("totalNodeCount"), Data.TotalNodeCount);
 	JsonObject->SetStringField(TEXT("extractionTimestamp"), Data.ExtractionTimestamp);
+	JsonObject->SetStringField(TEXT("classConfigName"), Data.ClassConfigName);
+	JsonObject->SetArrayField(TEXT("classSpecifiers"), BuildStringArray(Data.ClassSpecifiers));
+	AddSortedStringMap(JsonObject, TEXT("classDefaultValues"), Data.ClassDefaultValues);
+	AddSortedStringMap(JsonObject, TEXT("classDefaultValueDelta"), Data.ClassDefaultValueDelta);
+	JsonObject->SetObjectField(TEXT("dependencyClosure"), BuildDependencyClosureJson(Data));
 
 	// Canonical blueprint info for schema-based consumers
 	{
@@ -3526,6 +3815,7 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 		VarObj->SetBoolField(TEXT("isArray"), VarInfo.bIsArray);
 		VarObj->SetBoolField(TEXT("isMap"), VarInfo.bIsMap);
 		VarObj->SetBoolField(TEXT("isSet"), VarInfo.bIsSet);
+		VarObj->SetArrayField(TEXT("declarationSpecifiers"), BuildStringArray(VarInfo.DeclarationSpecifiers));
 		DetailedVarArray.Add(MakeShareable(new FJsonValueObject(VarObj)));
 	}
 	JsonObject->SetArrayField(TEXT("detailedVariables"), DetailedVarArray);
@@ -3560,6 +3850,7 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 		FuncObj->SetStringField(TEXT("returnTypeObjectPath"), FuncInfo.ReturnTypeObjectPath);
 		FuncObj->SetNumberField(TEXT("bytecodeSize"), FuncInfo.BytecodeSize);
 		FuncObj->SetStringField(TEXT("bytecodeHash"), FuncInfo.BytecodeHash);
+		FuncObj->SetArrayField(TEXT("declarationSpecifiers"), BuildStringArray(FuncInfo.DeclarationSpecifiers));
 		
 		TArray<TSharedPtr<FJsonValue>> InputParamArray;
 		for (const FString& Param : FuncInfo.InputParameters)
@@ -3594,6 +3885,7 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 		DelegateObj->SetStringField(TEXT("signaturePath"), DelegateInfo.FunctionPath);
 		DelegateObj->SetStringField(TEXT("returnType"), DelegateInfo.ReturnType);
 		DelegateObj->SetStringField(TEXT("returnTypeObjectPath"), DelegateInfo.ReturnTypeObjectPath);
+		DelegateObj->SetArrayField(TEXT("declarationSpecifiers"), BuildStringArray(DelegateInfo.DeclarationSpecifiers));
 		DelegateObj->SetArrayField(TEXT("inputParameters"), BuildStringArray(DelegateInfo.InputParameters));
 		DelegateObj->SetArrayField(TEXT("outputParameters"), BuildStringArray(DelegateInfo.OutputParameters));
 		DelegateSignatureArray.Add(MakeShareable(new FJsonValueObject(DelegateObj)));
@@ -4938,6 +5230,120 @@ void UBlueprintAnalyzer::ExtractBlueprintMetadata(UBlueprint* Blueprint, FBS_Blu
 	OutData.BlueprintTags.Sort();
 }
 
+void UBlueprintAnalyzer::ExtractClassParityData(UBlueprint* Blueprint, FBS_BlueprintData& OutData)
+{
+	OutData.ClassSpecifiers.Reset();
+	OutData.ClassConfigName.Reset();
+	OutData.ClassDefaultValues.Reset();
+	OutData.ClassDefaultValueDelta.Reset();
+
+	if (!Blueprint)
+	{
+		return;
+	}
+
+	UClass* BlueprintClass = Blueprint->GeneratedClass ? Blueprint->GeneratedClass : Blueprint->SkeletonGeneratedClass;
+	if (!BlueprintClass)
+	{
+		return;
+	}
+
+	auto AddClassSpecifier = [&OutData](const TCHAR* Specifier)
+	{
+		OutData.ClassSpecifiers.AddUnique(Specifier);
+	};
+
+	const EClassFlags ClassFlags = BlueprintClass->GetClassFlags();
+	if (EnumHasAnyFlags(ClassFlags, CLASS_Abstract)) AddClassSpecifier(TEXT("Abstract"));
+	if (Blueprint->BlueprintType != BPTYPE_MacroLibrary)
+	{
+		AddClassSpecifier(TEXT("BlueprintType"));
+		AddClassSpecifier(TEXT("Blueprintable"));
+	}
+	if (BlueprintClass->HasMetaData(TEXT("NotBlueprintable")))
+	{
+		AddClassSpecifier(TEXT("NotBlueprintable"));
+	}
+	if (EnumHasAnyFlags(ClassFlags, CLASS_NotPlaceable)) AddClassSpecifier(TEXT("NotPlaceable"));
+	if (!EnumHasAnyFlags(ClassFlags, CLASS_NotPlaceable)) AddClassSpecifier(TEXT("Placeable"));
+	if (EnumHasAnyFlags(ClassFlags, CLASS_Config)) AddClassSpecifier(TEXT("Config"));
+	if (EnumHasAnyFlags(ClassFlags, CLASS_DefaultConfig)) AddClassSpecifier(TEXT("DefaultConfig"));
+	if (EnumHasAnyFlags(ClassFlags, CLASS_Transient)) AddClassSpecifier(TEXT("Transient"));
+	if (EnumHasAnyFlags(ClassFlags, CLASS_Deprecated)) AddClassSpecifier(TEXT("Deprecated"));
+	if (EnumHasAnyFlags(ClassFlags, CLASS_EditInlineNew)) AddClassSpecifier(TEXT("EditInlineNew"));
+	if (EnumHasAnyFlags(ClassFlags, CLASS_Interface)) AddClassSpecifier(TEXT("Interface"));
+	if (EnumHasAnyFlags(ClassFlags, CLASS_Const)) AddClassSpecifier(TEXT("Const"));
+	if (EnumHasAnyFlags(ClassFlags, CLASS_MinimalAPI)) AddClassSpecifier(TEXT("MinimalAPI"));
+
+	if (Blueprint->bGenerateAbstractClass)
+	{
+		AddClassSpecifier(TEXT("GeneratedAbstract"));
+	}
+
+	OutData.ClassConfigName = BlueprintClass->ClassConfigName.ToString();
+	if (!OutData.ClassConfigName.IsEmpty() && !OutData.ClassConfigName.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+	{
+		AddClassSpecifier(TEXT("ConfigNamed"));
+	}
+
+	OutData.ClassSpecifiers.Sort();
+
+	UObject* ClassDefaultObject = BlueprintClass->GetDefaultObject(false);
+	UObject* ParentClassDefaultObject = nullptr;
+	if (UClass* SuperClass = BlueprintClass->GetSuperClass())
+	{
+		ParentClassDefaultObject = SuperClass->GetDefaultObject(false);
+	}
+
+	if (!ClassDefaultObject)
+	{
+		return;
+	}
+
+	for (TFieldIterator<FProperty> PropIt(BlueprintClass); PropIt; ++PropIt)
+	{
+		FProperty* Property = *PropIt;
+		if (!Property || Property->HasAnyPropertyFlags(CPF_Deprecated))
+		{
+			continue;
+		}
+
+		if (Property->HasAnyPropertyFlags(CPF_Transient))
+		{
+			continue;
+		}
+
+		const bool bRelevantForClassDefaults = Property->HasAnyPropertyFlags(CPF_Edit | CPF_BlueprintVisible | CPF_Config | CPF_SaveGame | CPF_Net);
+		if (!bRelevantForClassDefaults)
+		{
+			continue;
+		}
+
+		const FString PropertyName = Property->GetName();
+		const FString CurrentValue = GetPropertyValueAsString(ClassDefaultObject, Property);
+		OutData.ClassDefaultValues.Add(PropertyName, CurrentValue);
+
+		if (!ParentClassDefaultObject)
+		{
+			OutData.ClassDefaultValueDelta.Add(PropertyName, CurrentValue);
+			continue;
+		}
+
+		FProperty* ParentProperty = FindFProperty<FProperty>(ParentClassDefaultObject->GetClass(), Property->GetFName());
+		if (!ParentProperty)
+		{
+			OutData.ClassDefaultValueDelta.Add(PropertyName, CurrentValue);
+			continue;
+		}
+
+		const FString ParentValue = GetPropertyValueAsString(ParentClassDefaultObject, ParentProperty);
+		if (CurrentValue != ParentValue)
+		{
+			OutData.ClassDefaultValueDelta.Add(PropertyName, CurrentValue);
+		}
+	}
+}
+
 void UBlueprintAnalyzer::ExtractTimelineData(UBlueprint* Blueprint, FBS_BlueprintData& OutData)
 {
 	if (!Blueprint)
@@ -5110,6 +5516,71 @@ TArray<FBS_VariableInfo> UBlueprintAnalyzer::ExtractDetailedVariables(UBlueprint
 		case COND_InitialOrOwner: VarInfo.RepCondition = TEXT("InitialOrOwner"); break;
 		default: VarInfo.RepCondition = TEXT("None"); break;
 		}
+
+		TSet<FString> Specifiers;
+		if (VarDesc.PropertyFlags & CPF_Edit)
+		{
+			Specifiers.Add(TEXT("EditAnywhere"));
+		}
+		if ((VarDesc.PropertyFlags & CPF_Edit) && (VarDesc.PropertyFlags & CPF_DisableEditOnInstance))
+		{
+			Specifiers.Add(TEXT("EditDefaultsOnly"));
+		}
+		if ((VarDesc.PropertyFlags & CPF_Edit) && (VarDesc.PropertyFlags & CPF_DisableEditOnTemplate))
+		{
+			Specifiers.Add(TEXT("EditInstanceOnly"));
+		}
+		if (VarDesc.PropertyFlags & CPF_BlueprintVisible)
+		{
+			Specifiers.Add(TEXT("BlueprintReadWrite"));
+		}
+		if (VarDesc.PropertyFlags & CPF_BlueprintReadOnly)
+		{
+			Specifiers.Add(TEXT("BlueprintReadOnly"));
+		}
+		if (VarDesc.PropertyFlags & CPF_ExposeOnSpawn)
+		{
+			Specifiers.Add(TEXT("ExposeOnSpawn"));
+		}
+		if (VarDesc.PropertyFlags & CPF_Config)
+		{
+			Specifiers.Add(TEXT("Config"));
+		}
+		if (VarDesc.PropertyFlags & CPF_GlobalConfig)
+		{
+			Specifiers.Add(TEXT("GlobalConfig"));
+		}
+		if (VarDesc.PropertyFlags & CPF_SaveGame)
+		{
+			Specifiers.Add(TEXT("SaveGame"));
+		}
+		if (VarDesc.PropertyFlags & CPF_Transient)
+		{
+			Specifiers.Add(TEXT("Transient"));
+		}
+		if (VarDesc.PropertyFlags & CPF_InstancedReference)
+		{
+			Specifiers.Add(TEXT("Instanced"));
+		}
+		if (VarDesc.PropertyFlags & CPF_AdvancedDisplay)
+		{
+			Specifiers.Add(TEXT("AdvancedDisplay"));
+		}
+		if (VarDesc.PropertyFlags & CPF_Interp)
+		{
+			Specifiers.Add(TEXT("Interp"));
+		}
+		if (VarDesc.PropertyFlags & CPF_Net)
+		{
+			Specifiers.Add(TEXT("Replicated"));
+		}
+		if (VarDesc.PropertyFlags & CPF_RepNotify)
+		{
+			Specifiers.Add(TEXT("ReplicatedUsing"));
+		}
+
+		VarInfo.DeclarationSpecifiers = Specifiers.Array();
+		VarInfo.DeclarationSpecifiers.Sort();
 		
 		DetailedVars.Add(VarInfo);
 	}
@@ -5334,6 +5805,43 @@ TArray<FBS_FunctionInfo> UBlueprintAnalyzer::ExtractDetailedFunctions(UBlueprint
 			}
 		}
 
+		TSet<FString> FunctionSpecifiers;
+		if (FuncInfo.bIsPublic) FunctionSpecifiers.Add(TEXT("Public"));
+		if (FuncInfo.bIsProtected) FunctionSpecifiers.Add(TEXT("Protected"));
+		if (FuncInfo.bIsPrivate) FunctionSpecifiers.Add(TEXT("Private"));
+		if (FuncInfo.bIsPure) FunctionSpecifiers.Add(TEXT("BlueprintPure"));
+		if (FuncInfo.bIsStatic) FunctionSpecifiers.Add(TEXT("Static"));
+		if (FuncInfo.bCallInEditor) FunctionSpecifiers.Add(TEXT("CallInEditor"));
+		if (FuncInfo.bIsLatent) FunctionSpecifiers.Add(TEXT("Latent"));
+		if (FuncInfo.bIsOverride) FunctionSpecifiers.Add(TEXT("Override"));
+		if (FuncInfo.bCallsParent) FunctionSpecifiers.Add(TEXT("CallsParent"));
+		if (FuncInfo.bIsNet) FunctionSpecifiers.Add(TEXT("Net"));
+		if (FuncInfo.bIsNetServer) FunctionSpecifiers.Add(TEXT("Server"));
+		if (FuncInfo.bIsNetClient) FunctionSpecifiers.Add(TEXT("Client"));
+		if (FuncInfo.bIsNetMulticast) FunctionSpecifiers.Add(TEXT("NetMulticast"));
+		if (FuncInfo.bIsReliable) FunctionSpecifiers.Add(TEXT("Reliable"));
+		if (FuncInfo.bBlueprintAuthorityOnly) FunctionSpecifiers.Add(TEXT("BlueprintAuthorityOnly"));
+		if (FuncInfo.bBlueprintCosmetic) FunctionSpecifiers.Add(TEXT("BlueprintCosmetic"));
+
+		if (Func)
+		{
+			if (Func->HasAnyFunctionFlags(FUNC_BlueprintCallable)) FunctionSpecifiers.Add(TEXT("BlueprintCallable"));
+			if (Func->HasAnyFunctionFlags(FUNC_BlueprintEvent)) FunctionSpecifiers.Add(TEXT("BlueprintEvent"));
+			if (Func->HasAnyFunctionFlags(FUNC_Event)) FunctionSpecifiers.Add(TEXT("Event"));
+			if (Func->HasAnyFunctionFlags(FUNC_Exec)) FunctionSpecifiers.Add(TEXT("Exec"));
+			if (Func->HasAnyFunctionFlags(FUNC_Const)) FunctionSpecifiers.Add(TEXT("Const"));
+			if (Func->HasAnyFunctionFlags(FUNC_Final)) FunctionSpecifiers.Add(TEXT("Final"));
+			if (Func->HasMetaData(TEXT("DeprecatedFunction"))) FunctionSpecifiers.Add(TEXT("DeprecatedFunction"));
+		}
+
+		if (FuncInfo.ReturnType.IsEmpty())
+		{
+			FuncInfo.ReturnType = TEXT("void");
+		}
+
+		FuncInfo.DeclarationSpecifiers = FunctionSpecifiers.Array();
+		FuncInfo.DeclarationSpecifiers.Sort();
+
 		DetailedFuncs.Add(MoveTemp(FuncInfo));
 	}
 
@@ -5406,6 +5914,11 @@ TArray<FBS_FunctionInfo> UBlueprintAnalyzer::ExtractDelegateSignatures(UBlueprin
 
 		DelegateInfo.InputParameters.Sort();
 		DelegateInfo.OutputParameters.Sort();
+		if (DelegateInfo.ReturnType.IsEmpty())
+		{
+			DelegateInfo.ReturnType = TEXT("void");
+		}
+		DelegateInfo.DeclarationSpecifiers = { TEXT("Delegate"), TEXT("Public") };
 		DelegateInfos.Add(MoveTemp(DelegateInfo));
 	}
 
