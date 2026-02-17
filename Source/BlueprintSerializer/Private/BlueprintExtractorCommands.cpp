@@ -721,6 +721,9 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     int32 MissingRequiredExports = 0;
     int32 DependencyClosureNonEmpty = 0;
     int32 IncludeHintsNonEmpty = 0;
+    int32 NativeIncludeHintsNonEmpty = 0;
+    int32 ExportsWithDefaultObjectIncludeHints = 0;
+    int32 ExportsWithDefaultObjectClassPaths = 0;
     int32 UserStructSchemaNonEmpty = 0;
     int32 UserEnumSchemaNonEmpty = 0;
     int32 UserStructFieldCount = 0;
@@ -797,6 +800,54 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
             if (HasNonEmptyArrayField(Closure, TEXT("includeHints")))
             {
                 IncludeHintsNonEmpty++;
+
+                const TArray<TSharedPtr<FJsonValue>>* IncludeHints = nullptr;
+                if (Closure->TryGetArrayField(TEXT("includeHints"), IncludeHints) && IncludeHints)
+                {
+                    bool bHasDefaultObjectInclude = false;
+                    for (const TSharedPtr<FJsonValue>& IncludeValue : *IncludeHints)
+                    {
+                        FString IncludeText;
+                        if (IncludeValue.IsValid() && IncludeValue->TryGetString(IncludeText) && IncludeText.Contains(TEXT("Default__")))
+                        {
+                            bHasDefaultObjectInclude = true;
+                            break;
+                        }
+                    }
+
+                    if (bHasDefaultObjectInclude)
+                    {
+                        ExportsWithDefaultObjectIncludeHints++;
+                    }
+                }
+            }
+
+            if (HasNonEmptyArrayField(Closure, TEXT("nativeIncludeHints")))
+            {
+                NativeIncludeHintsNonEmpty++;
+            }
+
+            const TArray<TSharedPtr<FJsonValue>>* ClassPaths = nullptr;
+            if (Closure->TryGetArrayField(TEXT("classPaths"), ClassPaths) && ClassPaths)
+            {
+                bool bHasDefaultObjectClassPath = false;
+                for (const TSharedPtr<FJsonValue>& ClassPathValue : *ClassPaths)
+                {
+                    FString ClassPathText;
+                    if (ClassPathValue.IsValid()
+                        && ClassPathValue->TryGetString(ClassPathText)
+                        && ClassPathText.StartsWith(TEXT("/Script/"))
+                        && ClassPathText.Contains(TEXT("Default__")))
+                    {
+                        bHasDefaultObjectClassPath = true;
+                        break;
+                    }
+                }
+
+                if (bHasDefaultObjectClassPath)
+                {
+                    ExportsWithDefaultObjectClassPaths++;
+                }
             }
         }
 
@@ -1034,6 +1085,9 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     TSharedPtr<FJsonObject> Metrics = MakeShareable(new FJsonObject);
     Metrics->SetNumberField(TEXT("dependencyClosureNonEmpty"), DependencyClosureNonEmpty);
     Metrics->SetNumberField(TEXT("includeHintsNonEmpty"), IncludeHintsNonEmpty);
+    Metrics->SetNumberField(TEXT("nativeIncludeHintsNonEmpty"), NativeIncludeHintsNonEmpty);
+    Metrics->SetNumberField(TEXT("exportsWithDefaultObjectIncludeHints"), ExportsWithDefaultObjectIncludeHints);
+    Metrics->SetNumberField(TEXT("exportsWithDefaultObjectClassPaths"), ExportsWithDefaultObjectClassPaths);
     Metrics->SetNumberField(TEXT("userStructSchemaNonEmpty"), UserStructSchemaNonEmpty);
     Metrics->SetNumberField(TEXT("userEnumSchemaNonEmpty"), UserEnumSchemaNonEmpty);
     Metrics->SetNumberField(TEXT("userStructFieldCount"), UserStructFieldCount);
@@ -1113,7 +1167,8 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     UE_LOG(LogTemp, Log, TEXT("✅ Converter-ready validation completed. OverallPass=%s"), bOverallPass ? TEXT("true") : TEXT("false"));
     UE_LOG(LogTemp, Log, TEXT("   Blueprints=%d ParseErrors=%d MissingRequired=%d"), BlueprintFileCount, ParseErrors, MissingRequiredExports);
     UE_LOG(LogTemp, Log, TEXT("   Components total=%d inherited=%d overrides=%d deltas=%d"), ComponentTotal, ComponentInheritedCount, ComponentHasOverrideCount, ComponentWithOverrideDeltaCount);
-    UE_LOG(LogTemp, Log, TEXT("   Dependency closure non-empty=%d includeHints non-empty=%d"), DependencyClosureNonEmpty, IncludeHintsNonEmpty);
+    UE_LOG(LogTemp, Log, TEXT("   Dependency closure non-empty=%d includeHints non-empty=%d nativeIncludeHints non-empty=%d"), DependencyClosureNonEmpty, IncludeHintsNonEmpty, NativeIncludeHintsNonEmpty);
+    UE_LOG(LogTemp, Log, TEXT("   Exports with Default__ classPaths=%d includeHints=%d"), ExportsWithDefaultObjectClassPaths, ExportsWithDefaultObjectIncludeHints);
     UE_LOG(LogTemp, Log, TEXT("   Validation report: %s%s"), *ReportPath, bSaved ? TEXT("") : TEXT(" (save failed)"));
 
     if (GEngine)

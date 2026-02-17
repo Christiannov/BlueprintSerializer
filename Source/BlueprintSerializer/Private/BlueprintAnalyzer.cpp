@@ -882,6 +882,200 @@ namespace
         }
     }
 
+    bool TryParseScriptObjectPath(const FString& ScriptPath, FString& OutModuleName, FString& OutSymbolName)
+    {
+        OutModuleName.Reset();
+        OutSymbolName.Reset();
+
+        if (!ScriptPath.StartsWith(TEXT("/Script/")))
+        {
+            return false;
+        }
+
+        const FString ScriptPart = ScriptPath.Mid(8);
+        if (!ScriptPart.Split(TEXT("."), &OutModuleName, &OutSymbolName))
+        {
+            return false;
+        }
+
+        return !OutModuleName.IsEmpty() && !OutSymbolName.IsEmpty();
+    }
+
+    FString CanonicalizeScriptClassPath(const FString& ScriptPath)
+    {
+        FString ModuleName;
+        FString SymbolName;
+        if (!TryParseScriptObjectPath(ScriptPath, ModuleName, SymbolName))
+        {
+            return ScriptPath;
+        }
+
+        if (SymbolName.StartsWith(TEXT("Default__")))
+        {
+            FString CanonicalSymbol = SymbolName;
+            CanonicalSymbol.RightChopInline(9, EAllowShrinking::No);
+            if (!CanonicalSymbol.IsEmpty())
+            {
+                return FString::Printf(TEXT("/Script/%s.%s"), *ModuleName, *CanonicalSymbol);
+            }
+        }
+
+        return ScriptPath;
+    }
+
+    FString NormalizeIncludeHintPath(FString HeaderPath, const FString& FallbackModuleName)
+    {
+        HeaderPath.TrimStartAndEndInline();
+        HeaderPath.ReplaceInline(TEXT("\\"), TEXT("/"));
+
+        while (!HeaderPath.IsEmpty() && (HeaderPath.StartsWith(TEXT("\"")) || HeaderPath.StartsWith(TEXT("'"))))
+        {
+            HeaderPath.RightChopInline(1, EAllowShrinking::No);
+        }
+
+        while (!HeaderPath.IsEmpty() && (HeaderPath.EndsWith(TEXT("\"")) || HeaderPath.EndsWith(TEXT("'"))))
+        {
+            HeaderPath.LeftChopInline(1, EAllowShrinking::No);
+        }
+
+        if (HeaderPath.IsEmpty() || HeaderPath.EndsWith(TEXT(".generated.h")))
+        {
+            return FString();
+        }
+
+        while (HeaderPath.StartsWith(TEXT("./")))
+        {
+            HeaderPath.RightChopInline(2, EAllowShrinking::No);
+        }
+
+        while (HeaderPath.StartsWith(TEXT("/")))
+        {
+            HeaderPath.RightChopInline(1, EAllowShrinking::No);
+        }
+
+        int32 SourceIndex = HeaderPath.Find(TEXT("/Source/"), ESearchCase::IgnoreCase);
+        int32 SourceTokenLen = 8;
+        if (SourceIndex == INDEX_NONE && HeaderPath.StartsWith(TEXT("Source/"), ESearchCase::IgnoreCase))
+        {
+            SourceIndex = 0;
+            SourceTokenLen = 7;
+        }
+
+        if (SourceIndex != INDEX_NONE)
+        {
+            FString AfterSource = HeaderPath.Mid(SourceIndex + SourceTokenLen);
+            FString SourceModule;
+            FString RelativePath;
+            if (AfterSource.Split(TEXT("/"), &SourceModule, &RelativePath) && !SourceModule.IsEmpty() && !RelativePath.IsEmpty())
+            {
+                if (RelativePath.StartsWith(TEXT("Public/")))
+                {
+                    RelativePath.RightChopInline(7, EAllowShrinking::No);
+                }
+                else if (RelativePath.StartsWith(TEXT("Classes/")))
+                {
+                    RelativePath.RightChopInline(8, EAllowShrinking::No);
+                }
+                else if (RelativePath.StartsWith(TEXT("Private/")))
+                {
+                    return FString();
+                }
+
+                if (!RelativePath.IsEmpty())
+                {
+                    HeaderPath = SourceModule + TEXT("/") + RelativePath;
+                }
+            }
+        }
+
+        if (!FallbackModuleName.IsEmpty())
+        {
+            const FString ModuleClassesPrefix = FallbackModuleName + TEXT("/Classes/");
+            const FString ModulePublicPrefix = FallbackModuleName + TEXT("/Public/");
+
+            if (HeaderPath.StartsWith(ModuleClassesPrefix))
+            {
+                HeaderPath = FallbackModuleName + TEXT("/") + HeaderPath.Mid(ModuleClassesPrefix.Len());
+            }
+            else if (HeaderPath.StartsWith(ModulePublicPrefix))
+            {
+                HeaderPath = FallbackModuleName + TEXT("/") + HeaderPath.Mid(ModulePublicPrefix.Len());
+            }
+            else if (HeaderPath.StartsWith(TEXT("Classes/")))
+            {
+                HeaderPath = FallbackModuleName + TEXT("/") + HeaderPath.Mid(8);
+            }
+            else if (HeaderPath.StartsWith(TEXT("Public/")))
+            {
+                HeaderPath = FallbackModuleName + TEXT("/") + HeaderPath.Mid(7);
+            }
+        }
+
+        if (HeaderPath.StartsWith(TEXT("Private/")) || HeaderPath.Contains(TEXT("/Private/")))
+        {
+            return FString();
+        }
+
+        if (!HeaderPath.EndsWith(TEXT(".h")))
+        {
+            return FString();
+        }
+
+        return HeaderPath;
+    }
+
+    FString ResolveMetadataIncludeHint(const FString& ScriptPath)
+    {
+        FString ModuleName;
+        FString SymbolName;
+        if (!TryParseScriptObjectPath(ScriptPath, ModuleName, SymbolName))
+        {
+            return FString();
+        }
+
+        UObject* ScriptObject = FindObject<UObject>(nullptr, *ScriptPath);
+        if (!ScriptObject)
+        {
+            return FString();
+        }
+
+        const UField* MetadataField = Cast<UField>(ScriptObject);
+        if (!MetadataField)
+        {
+            MetadataField = Cast<UField>(ScriptObject->GetClass());
+        }
+
+        if (!MetadataField)
+        {
+            return FString();
+        }
+
+        const FString ModuleRelativePath = MetadataField->GetMetaData(TEXT("ModuleRelativePath"));
+        return NormalizeIncludeHintPath(ModuleRelativePath, ModuleName);
+    }
+
+    FString BuildFallbackIncludeHint(const FString& ScriptPath)
+    {
+        FString ModuleName;
+        FString SymbolName;
+        if (!TryParseScriptObjectPath(ScriptPath, ModuleName, SymbolName))
+        {
+            return FString();
+        }
+
+        if (SymbolName.StartsWith(TEXT("Default__")))
+        {
+            SymbolName.RightChopInline(9, EAllowShrinking::No);
+            if (SymbolName.IsEmpty())
+            {
+                return FString();
+            }
+        }
+
+        SymbolName = SymbolName.Replace(TEXT("::"), TEXT("_"));
+        return FString::Printf(TEXT("%s/%s.h"), *ModuleName, *SymbolName);
+    }
+
     void AddDependencyPath(const FString& RawPath, FBS_DependencyClosureData& OutClosure)
     {
         TArray<FString> Candidates;
@@ -929,14 +1123,28 @@ namespace
                     {
                         OutClosure.Enums.Add(ScriptEnum->GetPathName());
                     }
+                    else if (UClass* ScriptObjectClass = ScriptObject->GetClass())
+                    {
+                        const FString ScriptObjectClassPath = ScriptObjectClass->GetPathName();
+                        if (ScriptObjectClass->HasAnyClassFlags(CLASS_Interface))
+                        {
+                            OutClosure.Interfaces.Add(ScriptObjectClassPath);
+                        }
+                        else
+                        {
+                            OutClosure.Classes.Add(ScriptObjectClassPath);
+                        }
+
+                        AddModuleFromPath(ScriptObjectClassPath, OutClosure.Modules);
+                    }
                     else
                     {
-                        OutClosure.Classes.Add(Candidate);
+                        OutClosure.Classes.Add(CanonicalizeScriptClassPath(Candidate));
                     }
                 }
                 else
                 {
-                    OutClosure.Classes.Add(Candidate);
+                    OutClosure.Classes.Add(CanonicalizeScriptClassPath(Candidate));
                 }
 
                 continue;
@@ -1199,29 +1407,34 @@ namespace
         ClosureJson->SetArrayField(TEXT("moduleNames"), BuildStringArray(ToSortedArray(Closure.Modules)));
 
         TSet<FString> IncludeHints;
-        auto AddIncludeHint = [&IncludeHints](const FString& ScriptPath)
+        TSet<FString> NativeIncludeHints;
+        auto AddIncludeHint = [&IncludeHints, &NativeIncludeHints](const FString& ScriptPath)
         {
             if (!ScriptPath.StartsWith(TEXT("/Script/")))
             {
                 return;
             }
 
-            const FString ScriptPart = ScriptPath.Mid(8);
-            FString ModuleName;
-            FString SymbolName;
-            if (!ScriptPart.Split(TEXT("."), &ModuleName, &SymbolName) || ModuleName.IsEmpty() || SymbolName.IsEmpty())
+            const FString NativeIncludeHint = ResolveMetadataIncludeHint(ScriptPath);
+            if (!NativeIncludeHint.IsEmpty())
             {
+                NativeIncludeHints.Add(NativeIncludeHint);
+                IncludeHints.Add(NativeIncludeHint);
                 return;
             }
 
-            SymbolName = SymbolName.Replace(TEXT("::"), TEXT("_"));
-            IncludeHints.Add(FString::Printf(TEXT("%s/%s.h"), *ModuleName, *SymbolName));
+            const FString FallbackIncludeHint = BuildFallbackIncludeHint(ScriptPath);
+            if (!FallbackIncludeHint.IsEmpty())
+            {
+                IncludeHints.Add(FallbackIncludeHint);
+            }
         };
 
         for (const FString& ClassPath : Closure.Classes) AddIncludeHint(ClassPath);
         for (const FString& StructPath : Closure.Structs) AddIncludeHint(StructPath);
         for (const FString& EnumPath : Closure.Enums) AddIncludeHint(EnumPath);
         for (const FString& InterfacePath : Closure.Interfaces) AddIncludeHint(InterfacePath);
+        ClosureJson->SetArrayField(TEXT("nativeIncludeHints"), BuildStringArray(ToSortedArray(NativeIncludeHints)));
         ClosureJson->SetArrayField(TEXT("includeHints"), BuildStringArray(ToSortedArray(IncludeHints)));
 
         return ClosureJson;

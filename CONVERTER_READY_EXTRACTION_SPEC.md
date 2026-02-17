@@ -77,6 +77,7 @@ Must capture:
 Must capture:
 - resolved dependency closure for classes, structs, enums, interfaces, assets, and control rigs
 - enough symbol identity for codegen includes/module dependencies
+- include hints should prefer reflected header metadata (`nativeIncludeHints`) with fallback symbolic hints (`includeHints`)
 
 ## 2.6 Animation and control rig
 
@@ -94,7 +95,7 @@ Known gaps:
 - ControlRig detection is partial in latest batch (20 AnimBPs detected, control rigs extracted for 3).
 - Gameplay tags are best-effort from anim variable naming/type heuristics, not full tag flow extraction.
 - ControlRig detail fields are emitted but currently unpopulated (`controls`, `bones`, `controlToBoneMap`, feature maps).
-- Include/module mapping quality in dependency closure still needs deeper accuracy for compile-ready generated code.
+- Include/module mapping quality improved (`nativeIncludeHints`, `Default__` canonicalization), but module ownership/include fidelity still needs deeper compile-loop validation.
 - Some inheritable override edge-cases still need deeper coverage validation across larger parent-chain corpora.
 - Transition detail is partial (only some transition fields are populated; several remain defaults unless added).
 - Animation curves currently extract float curves only; vector/transform curve payloads are not populated.

@@ -183,6 +183,26 @@ Batch sampled:
   - report: `Saved/BlueprintExports/BP_SLZR_All_20260217_2/BP_SLZR_ValidationReport_20260217_024410.json`
   - result remained `overallPass=true` with full gate pass.
 
+## Dependency include quality batch (2026-02-17)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_All_20260217_3/*.json`
+- Manifest: `Saved/BlueprintExports/BP_SLZR_All_20260217_3/BP_SLZR_Manifest_20260217_104541.json`
+- Validation report: `Saved/BlueprintExports/BP_SLZR_All_20260217_3/BP_SLZR_ValidationReport_20260217_122155.json`
+
+- Full export command succeeds: `BP_SLZR.ExportAllBlueprints Saved/BlueprintExports/BP_SLZR_All_20260217_3` -> `Success: 485, Failed: 0`.
+- Dependency closure include quality improvements:
+  - canonicalized `/Script/*Default__*` script-object paths to class-symbol paths in closure (`Default__` class noise removed)
+  - added `dependencyClosure.nativeIncludeHints` from reflected `ModuleRelativePath` metadata
+  - `dependencyClosure.includeHints` now prefers native metadata-derived headers and falls back only when native header resolution is unavailable
+- Validation metrics on this batch:
+  - `overallPass=true`
+  - `includeHintsNonEmpty=485/485`
+  - `nativeIncludeHintsNonEmpty=485/485`
+  - `exportsWithDefaultObjectClassPaths=0/485`
+  - `exportsWithDefaultObjectIncludeHints=0/485`
+
 ## C++ complete conversion focus (primary)
 
 This section defines the must-have subset for "things usually done in C++".
@@ -219,7 +239,7 @@ Notes:
 | CR-011 | Transition fidelity | Populate full transition fields (blend mode, priority, notify index, etc.) | todo | some fields remain defaults |
 | CR-012 | Notify fidelity | Populate track/event payload (`trackName`, `eventParameters`, etc.) | todo | currently minimal notify payload |
 | CR-013 | Curve fidelity | Add vector/transform/material/morph curve extraction where available | todo | currently float-curve path only |
-| CR-014 | Dependency closure | Emit converter-facing dependency closure manifest (types/modules/includes) | in_progress | `dependencyClosure` now emits class/struct/enum/interface/asset/control-rig/module sets plus `includeHints`; higher-fidelity include/module mapping still pending |
+| CR-014 | Dependency closure | Emit converter-facing dependency closure manifest (types/modules/includes) | in_progress | emits class/struct/enum/interface/asset/control-rig/module sets plus `includeHints` and `nativeIncludeHints`; include/module fidelity still needs deeper compile-loop tuning |
 | CR-015 | Tooling parity | Implement missing module entrypoints (`BP_SLZR.Serialize`, selected serialize, context generation) | done | wired module commands + implemented `GenerateLLMContext()` |
 | CR-016 | Validation gates | Automate converter-ready gate checks and publish pass/fail report per run | done | `BP_SLZR.ValidateConverterReady` now emits per-run JSON report with gate-level pass/fail + coverage metrics |
 | CR-017 | Legacy path cleanup | Replace/remove `AnalyzeNodeDetails` temporary stub path to avoid partial legacy behavior | todo | `BlueprintAnalyzer.cpp` contains disabled legacy node-analysis stub |
@@ -279,3 +299,4 @@ For each completed task:
 - 2026-02-17: Added class-level config parity map (`classConfigFlags`) and validated full-batch key-shape coverage (`485/485` exports, `0` missing required config-flag keys).
 - 2026-02-17: Implemented `BP_SLZR.ValidateConverterReady` gate command to automate manifest/schema/coverage checks and emit a per-run validation report (`overallPass=true` on `BP_SLZR_All_20260217_1`).
 - 2026-02-17: Re-ran `BP_SLZR.ValidateConverterReady` on later full batch `BP_SLZR_All_20260217_2` and confirmed sustained gate pass (`overallPass=true`; report `BP_SLZR_ValidationReport_20260217_024410.json`).
+- 2026-02-17: Improved dependency closure include quality by canonicalizing `Default__` script-object class paths and emitting metadata-backed `nativeIncludeHints`; validated on `BP_SLZR_All_20260217_3` (`nativeIncludeHintsNonEmpty=485/485`, `exportsWithDefaultObjectClassPaths=0`, `exportsWithDefaultObjectIncludeHints=0`, `overallPass=true`, report `BP_SLZR_ValidationReport_20260217_122155.json`).
