@@ -6,6 +6,7 @@
 #include "Misc/DateTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "HAL/FileManager.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 
@@ -73,6 +74,12 @@ static FAutoConsoleCommand ExportMultipleBlueprintsCommand(
     TEXT("Export multiple Blueprints to JSON. Usage: BP_SLZR.ExportMultipleBlueprints <Path1> <Path2> <Path3> ..."),
     FConsoleCommandWithArgsDelegate::CreateStatic(&FBlueprintExtractorCommands::ExportMultipleBlueprints)
 );
+
+static FAutoConsoleCommand ValidateConverterReadyCommand(
+    TEXT("BP_SLZR.ValidateConverterReady"),
+    TEXT("Validate converter-ready export gates. Usage: BP_SLZR.ValidateConverterReady [ExportDir] [ReportPath]"),
+    FConsoleCommandWithArgsDelegate::CreateStatic(&FBlueprintExtractorCommands::ValidateConverterReady)
+);
 #endif
 
 void FBlueprintExtractorCommands::RegisterCommands()
@@ -86,6 +93,7 @@ void FBlueprintExtractorCommands::RegisterCommands()
     UE_LOG(LogTemp, Log, TEXT("  ✅ BP_SLZR.AnalyzeBlueprint <path> - SAFE: Analyze specific Blueprint"));
     UE_LOG(LogTemp, Log, TEXT("  ✅ BP_SLZR.ExportSingleBlueprint <path> - RECOMMENDED: Export single Blueprint to JSON"));
     UE_LOG(LogTemp, Log, TEXT("  ✅ BP_SLZR.ExportMultipleBlueprints <paths...> - RECOMMENDED: Export multiple Blueprints"));
+    UE_LOG(LogTemp, Log, TEXT("  ✅ BP_SLZR.ValidateConverterReady [dir] [report] - Run converter gate checks"));
     UE_LOG(LogTemp, Log, TEXT("Advanced Reference Viewer Commands:"));
     UE_LOG(LogTemp, Log, TEXT("  🔍 BP_SLZR.ExtractAssetDependencies <path> [depth] [hardonly] [refs] - Asset dependency analysis"));
     UE_LOG(LogTemp, Log, TEXT("  🌐 BP_SLZR.ExtractProjectDependencyMap [depth] [class] - Project-wide dependency mapping"));
@@ -517,6 +525,602 @@ void FBlueprintExtractorCommands::ExportMultipleBlueprints(const TArray<FString>
         GEngine->AddOnScreenDebugMessage(-1, 10.0f, 
             SuccessCount > 0 ? FColor::Green : FColor::Red,
             FString::Printf(TEXT("Exported %d/%d Blueprints"), SuccessCount, Args.Num()));
+    }
+#else
+    UE_LOG(LogTemp, Warning, TEXT("Blueprint extraction only available in editor builds"));
+#endif
+}
+
+void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& Args)
+{
+#if WITH_EDITOR
+    auto CleanConsoleArg = [](const FString& InArg) -> FString
+    {
+        FString Cleaned = InArg;
+        int32 SemicolonIndex;
+        if (Cleaned.FindChar(';', SemicolonIndex))
+        {
+            Cleaned = Cleaned.Left(SemicolonIndex);
+        }
+        Cleaned.TrimStartAndEndInline();
+        return Cleaned;
+    };
+
+    auto ResolveLatestBatchDir = [](const FString& BaseDir) -> FString
+    {
+        TArray<FString> CandidateDirs;
+        IFileManager::Get().FindFiles(CandidateDirs, *FPaths::Combine(BaseDir, TEXT("BP_SLZR_All_*")), false, true);
+        CandidateDirs.Sort(TGreater<FString>());
+
+        for (const FString& Candidate : CandidateDirs)
+        {
+            const FString FullPath = FPaths::Combine(BaseDir, Candidate);
+            if (IFileManager::Get().DirectoryExists(*FullPath))
+            {
+                return FullPath;
+            }
+        }
+
+        return FString();
+    };
+
+    const FString AbsoluteProjectDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+
+    auto ResolveAbsolutePath = [&AbsoluteProjectDir](const FString& MaybeRelative) -> FString
+    {
+        FString OutPath = MaybeRelative;
+        if (OutPath.IsEmpty())
+        {
+            return OutPath;
+        }
+
+        if (FPaths::IsRelative(OutPath))
+        {
+            OutPath = FPaths::ConvertRelativePathToFull(AbsoluteProjectDir, OutPath);
+        }
+        else
+        {
+            OutPath = FPaths::ConvertRelativePathToFull(OutPath);
+        }
+
+        FPaths::NormalizeDirectoryName(OutPath);
+        FPaths::CollapseRelativeDirectories(OutPath);
+        return OutPath;
+    };
+
+    FString ExportDir;
+    if (Args.Num() > 0)
+    {
+        ExportDir = CleanConsoleArg(Args[0]);
+    }
+
+    if (ExportDir.IsEmpty())
+    {
+        const FString AbsoluteSavedDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir());
+        const FString ExportRoot = ResolveAbsolutePath(FPaths::Combine(AbsoluteSavedDir, TEXT("BlueprintExports")));
+        ExportDir = ResolveLatestBatchDir(ExportRoot);
+        if (ExportDir.IsEmpty())
+        {
+            UE_LOG(LogTemp, Error, TEXT("❌ ValidateConverterReady: no BP_SLZR_All_* export directory found under %s"), *ExportRoot);
+            return;
+        }
+    }
+    else
+    {
+        ExportDir = ResolveAbsolutePath(ExportDir);
+
+        if (!IFileManager::Get().DirectoryExists(*ExportDir))
+        {
+            UE_LOG(LogTemp, Error, TEXT("❌ ValidateConverterReady: export directory does not exist: %s"), *ExportDir);
+            return;
+        }
+
+        TArray<FString> TopLevelJsonFiles;
+        IFileManager::Get().FindFiles(TopLevelJsonFiles, *FPaths::Combine(ExportDir, TEXT("*.json")), true, false);
+
+        if (TopLevelJsonFiles.Num() == 0)
+        {
+            const FString MaybeBatchDir = ResolveLatestBatchDir(ExportDir);
+            if (!MaybeBatchDir.IsEmpty())
+            {
+                ExportDir = MaybeBatchDir;
+            }
+        }
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("🔎 Validating converter-ready batch: %s"), *ExportDir);
+
+    TArray<FString> JsonFileNames;
+    IFileManager::Get().FindFiles(JsonFileNames, *FPaths::Combine(ExportDir, TEXT("*.json")), true, false);
+    JsonFileNames.Sort();
+
+    TArray<FString> ManifestFileNames;
+    TArray<FString> BlueprintFileNames;
+    for (const FString& FileName : JsonFileNames)
+    {
+        if (FileName.Contains(TEXT("Manifest"), ESearchCase::IgnoreCase))
+        {
+            ManifestFileNames.Add(FileName);
+        }
+        else if (FileName.Contains(TEXT("ValidationReport"), ESearchCase::IgnoreCase))
+        {
+            continue;
+        }
+        else
+        {
+            BlueprintFileNames.Add(FileName);
+        }
+    }
+
+    ManifestFileNames.Sort(TGreater<FString>());
+    const FString ManifestPath = ManifestFileNames.Num() > 0 ? FPaths::Combine(ExportDir, ManifestFileNames[0]) : FString();
+
+    int32 ManifestTotal = -1;
+    int32 ManifestSuccessCount = -1;
+    int32 ManifestFailCount = -1;
+    bool bManifestParsed = false;
+    if (!ManifestPath.IsEmpty())
+    {
+        FString ManifestContents;
+        if (FFileHelper::LoadFileToString(ManifestContents, *ManifestPath))
+        {
+            TSharedPtr<FJsonObject> ManifestJson;
+            const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ManifestContents);
+            if (FJsonSerializer::Deserialize(Reader, ManifestJson) && ManifestJson.IsValid())
+            {
+                double NumericField = 0.0;
+                if (ManifestJson->TryGetNumberField(TEXT("total"), NumericField)) ManifestTotal = static_cast<int32>(NumericField);
+                if (ManifestJson->TryGetNumberField(TEXT("successCount"), NumericField)) ManifestSuccessCount = static_cast<int32>(NumericField);
+                if (ManifestJson->TryGetNumberField(TEXT("failCount"), NumericField)) ManifestFailCount = static_cast<int32>(NumericField);
+                bManifestParsed = true;
+            }
+        }
+    }
+
+    const TArray<FString> RequiredTopLevelKeys = {
+        TEXT("classSpecifiers"),
+        TEXT("classConfigName"),
+        TEXT("classConfigFlags"),
+        TEXT("classDefaultValues"),
+        TEXT("classDefaultValueDelta"),
+        TEXT("dependencyClosure"),
+        TEXT("userDefinedStructSchemas"),
+        TEXT("userDefinedEnumSchemas")
+    };
+
+    const TArray<FString> RequiredClassConfigFlagKeys = {
+        TEXT("isConfigClass"),
+        TEXT("isDefaultConfig"),
+        TEXT("isPerObjectConfig"),
+        TEXT("isGlobalUserConfig"),
+        TEXT("isProjectUserConfig"),
+        TEXT("isPerPlatformConfig"),
+        TEXT("configDoesNotCheckDefaults"),
+        TEXT("hasConfigName")
+    };
+
+    const TArray<FString> RequiredComponentOverrideKeys = {
+        TEXT("hasInheritableOverride"),
+        TEXT("inheritableOwnerClassPath"),
+        TEXT("inheritableOwnerClassName"),
+        TEXT("inheritableComponentGuid"),
+        TEXT("inheritableSourceTemplatePath"),
+        TEXT("inheritableOverrideTemplatePath"),
+        TEXT("inheritableOverrideProperties"),
+        TEXT("inheritableOverrideValues"),
+        TEXT("inheritableParentValues")
+    };
+
+    auto HasNonEmptyArrayField = [](const TSharedPtr<FJsonObject>& Obj, const FString& FieldName) -> bool
+    {
+        const TArray<TSharedPtr<FJsonValue>>* ArrayField = nullptr;
+        return Obj.IsValid() && Obj->TryGetArrayField(FieldName, ArrayField) && ArrayField && ArrayField->Num() > 0;
+    };
+
+    int32 ParseErrors = 0;
+    int32 MissingRequiredExports = 0;
+    int32 DependencyClosureNonEmpty = 0;
+    int32 IncludeHintsNonEmpty = 0;
+    int32 UserStructSchemaNonEmpty = 0;
+    int32 UserEnumSchemaNonEmpty = 0;
+    int32 UserStructFieldCount = 0;
+    int32 UserEnumValueCount = 0;
+
+    int32 VariableTotal = 0;
+    int32 VariableWithDeclarationSpecifiers = 0;
+    int32 FunctionTotal = 0;
+    int32 FunctionWithDeclarationSpecifiers = 0;
+
+    int32 ComponentTotal = 0;
+    int32 ComponentInheritedCount = 0;
+    int32 ComponentHasOverrideCount = 0;
+    int32 ComponentWithOverrideDeltaCount = 0;
+    int32 ExportsWithOverrideCount = 0;
+
+    int32 ClassConfigFlagsPresentCount = 0;
+    int32 ExportsMissingClassConfigFlagKeys = 0;
+    int32 ComponentsMissingOverrideShape = 0;
+
+    TSet<FString> MissingTopLevelKeyNames;
+    TSet<FString> MissingClassConfigFlagKeyNames;
+    TSet<FString> MissingComponentOverrideKeyNames;
+
+    for (const FString& FileName : BlueprintFileNames)
+    {
+        const FString FullPath = FPaths::Combine(ExportDir, FileName);
+        FString Contents;
+        if (!FFileHelper::LoadFileToString(Contents, *FullPath))
+        {
+            ParseErrors++;
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> Json;
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Contents);
+        if (!FJsonSerializer::Deserialize(Reader, Json) || !Json.IsValid())
+        {
+            ParseErrors++;
+            continue;
+        }
+
+        bool bMissingTopLevelInThisExport = false;
+        for (const FString& Key : RequiredTopLevelKeys)
+        {
+            if (!Json->HasField(Key))
+            {
+                bMissingTopLevelInThisExport = true;
+                MissingTopLevelKeyNames.Add(Key);
+            }
+        }
+        if (bMissingTopLevelInThisExport)
+        {
+            MissingRequiredExports++;
+        }
+
+        const TSharedPtr<FJsonObject>* DependencyClosureObj = nullptr;
+        if (Json->TryGetObjectField(TEXT("dependencyClosure"), DependencyClosureObj) && DependencyClosureObj && DependencyClosureObj->IsValid())
+        {
+            const TSharedPtr<FJsonObject> Closure = *DependencyClosureObj;
+            const bool bHasClosure =
+                HasNonEmptyArrayField(Closure, TEXT("classPaths")) ||
+                HasNonEmptyArrayField(Closure, TEXT("structPaths")) ||
+                HasNonEmptyArrayField(Closure, TEXT("enumPaths")) ||
+                HasNonEmptyArrayField(Closure, TEXT("interfacePaths")) ||
+                HasNonEmptyArrayField(Closure, TEXT("assetPaths")) ||
+                HasNonEmptyArrayField(Closure, TEXT("controlRigPaths")) ||
+                HasNonEmptyArrayField(Closure, TEXT("moduleNames"));
+
+            if (bHasClosure)
+            {
+                DependencyClosureNonEmpty++;
+            }
+            if (HasNonEmptyArrayField(Closure, TEXT("includeHints")))
+            {
+                IncludeHintsNonEmpty++;
+            }
+        }
+
+        const TArray<TSharedPtr<FJsonValue>>* StructSchemas = nullptr;
+        if (Json->TryGetArrayField(TEXT("userDefinedStructSchemas"), StructSchemas) && StructSchemas)
+        {
+            if (StructSchemas->Num() > 0)
+            {
+                UserStructSchemaNonEmpty++;
+            }
+
+            for (const TSharedPtr<FJsonValue>& StructValue : *StructSchemas)
+            {
+                const TSharedPtr<FJsonObject> StructObj = StructValue.IsValid() ? StructValue->AsObject() : nullptr;
+                if (!StructObj.IsValid())
+                {
+                    continue;
+                }
+
+                const TArray<TSharedPtr<FJsonValue>>* Fields = nullptr;
+                if (StructObj->TryGetArrayField(TEXT("fields"), Fields) && Fields)
+                {
+                    UserStructFieldCount += Fields->Num();
+                }
+            }
+        }
+
+        const TArray<TSharedPtr<FJsonValue>>* EnumSchemas = nullptr;
+        if (Json->TryGetArrayField(TEXT("userDefinedEnumSchemas"), EnumSchemas) && EnumSchemas)
+        {
+            if (EnumSchemas->Num() > 0)
+            {
+                UserEnumSchemaNonEmpty++;
+            }
+
+            for (const TSharedPtr<FJsonValue>& EnumValue : *EnumSchemas)
+            {
+                const TSharedPtr<FJsonObject> EnumObj = EnumValue.IsValid() ? EnumValue->AsObject() : nullptr;
+                if (!EnumObj.IsValid())
+                {
+                    continue;
+                }
+
+                const TArray<TSharedPtr<FJsonValue>>* Enumerators = nullptr;
+                if (EnumObj->TryGetArrayField(TEXT("enumerators"), Enumerators) && Enumerators)
+                {
+                    UserEnumValueCount += Enumerators->Num();
+                }
+            }
+        }
+
+        const TArray<TSharedPtr<FJsonValue>>* VariableArray = nullptr;
+        if (Json->TryGetArrayField(TEXT("detailedVariables"), VariableArray) && VariableArray)
+        {
+            for (const TSharedPtr<FJsonValue>& VariableValue : *VariableArray)
+            {
+                const TSharedPtr<FJsonObject> VariableObj = VariableValue.IsValid() ? VariableValue->AsObject() : nullptr;
+                if (!VariableObj.IsValid())
+                {
+                    continue;
+                }
+
+                VariableTotal++;
+                if (HasNonEmptyArrayField(VariableObj, TEXT("declarationSpecifiers")))
+                {
+                    VariableWithDeclarationSpecifiers++;
+                }
+            }
+        }
+
+        const TArray<TSharedPtr<FJsonValue>>* FunctionArray = nullptr;
+        if (Json->TryGetArrayField(TEXT("detailedFunctions"), FunctionArray) && FunctionArray)
+        {
+            for (const TSharedPtr<FJsonValue>& FunctionValue : *FunctionArray)
+            {
+                const TSharedPtr<FJsonObject> FunctionObj = FunctionValue.IsValid() ? FunctionValue->AsObject() : nullptr;
+                if (!FunctionObj.IsValid())
+                {
+                    continue;
+                }
+
+                FunctionTotal++;
+                if (HasNonEmptyArrayField(FunctionObj, TEXT("declarationSpecifiers")))
+                {
+                    FunctionWithDeclarationSpecifiers++;
+                }
+            }
+        }
+
+        const TSharedPtr<FJsonObject>* ClassConfigFlagsObj = nullptr;
+        if (Json->TryGetObjectField(TEXT("classConfigFlags"), ClassConfigFlagsObj) && ClassConfigFlagsObj && ClassConfigFlagsObj->IsValid())
+        {
+            ClassConfigFlagsPresentCount++;
+
+            bool bMissingClassConfigShape = false;
+            for (const FString& FlagKey : RequiredClassConfigFlagKeys)
+            {
+                if (!(*ClassConfigFlagsObj)->HasField(FlagKey))
+                {
+                    bMissingClassConfigShape = true;
+                    MissingClassConfigFlagKeyNames.Add(FlagKey);
+                }
+            }
+
+            if (bMissingClassConfigShape)
+            {
+                ExportsMissingClassConfigFlagKeys++;
+            }
+        }
+        else
+        {
+            ExportsMissingClassConfigFlagKeys++;
+            for (const FString& FlagKey : RequiredClassConfigFlagKeys)
+            {
+                MissingClassConfigFlagKeyNames.Add(FlagKey);
+            }
+        }
+
+        const TArray<TSharedPtr<FJsonValue>>* ComponentArray = nullptr;
+        if (Json->TryGetArrayField(TEXT("detailedComponents"), ComponentArray) && ComponentArray)
+        {
+            bool bExportHasOverride = false;
+
+            for (const TSharedPtr<FJsonValue>& ComponentValue : *ComponentArray)
+            {
+                const TSharedPtr<FJsonObject> ComponentObj = ComponentValue.IsValid() ? ComponentValue->AsObject() : nullptr;
+                if (!ComponentObj.IsValid())
+                {
+                    continue;
+                }
+
+                ComponentTotal++;
+
+                bool bIsInherited = false;
+                if (ComponentObj->TryGetBoolField(TEXT("isInherited"), bIsInherited) && bIsInherited)
+                {
+                    ComponentInheritedCount++;
+                }
+
+                bool bHasOverride = false;
+                if (ComponentObj->TryGetBoolField(TEXT("hasInheritableOverride"), bHasOverride) && bHasOverride)
+                {
+                    ComponentHasOverrideCount++;
+                    bExportHasOverride = true;
+                }
+
+                if (HasNonEmptyArrayField(ComponentObj, TEXT("inheritableOverrideProperties")))
+                {
+                    ComponentWithOverrideDeltaCount++;
+                }
+
+                bool bMissingComponentShape = false;
+                for (const FString& ComponentKey : RequiredComponentOverrideKeys)
+                {
+                    if (!ComponentObj->HasField(ComponentKey))
+                    {
+                        bMissingComponentShape = true;
+                        MissingComponentOverrideKeyNames.Add(ComponentKey);
+                    }
+                }
+
+                if (bMissingComponentShape)
+                {
+                    ComponentsMissingOverrideShape++;
+                }
+            }
+
+            if (bExportHasOverride)
+            {
+                ExportsWithOverrideCount++;
+            }
+        }
+    }
+
+    const int32 BlueprintFileCount = BlueprintFileNames.Num();
+    const bool bGateManifestPresent = bManifestParsed;
+    const bool bGateManifestCounts = bManifestParsed && ManifestTotal == BlueprintFileCount && ManifestSuccessCount == BlueprintFileCount && ManifestFailCount == 0;
+    const bool bGateParse = ParseErrors == 0;
+    const bool bGateRequiredKeys = MissingRequiredExports == 0;
+    const bool bGateVariableDeclarations = VariableTotal > 0 && VariableTotal == VariableWithDeclarationSpecifiers;
+    const bool bGateFunctionDeclarations = FunctionTotal > 0 && FunctionTotal == FunctionWithDeclarationSpecifiers;
+    const bool bGateClassConfigShape = ExportsMissingClassConfigFlagKeys == 0;
+    const bool bGateComponentShape = ComponentsMissingOverrideShape == 0;
+    const bool bGateDependencyClosureCoverage = DependencyClosureNonEmpty == BlueprintFileCount;
+    const bool bGateIncludeHintsCoverage = IncludeHintsNonEmpty == BlueprintFileCount;
+
+    const bool bOverallPass =
+        bGateManifestPresent &&
+        bGateManifestCounts &&
+        bGateParse &&
+        bGateRequiredKeys &&
+        bGateVariableDeclarations &&
+        bGateFunctionDeclarations &&
+        bGateClassConfigShape &&
+        bGateComponentShape &&
+        bGateDependencyClosureCoverage &&
+        bGateIncludeHintsCoverage;
+
+    TArray<FString> MissingTopLevelKeys = MissingTopLevelKeyNames.Array();
+    MissingTopLevelKeys.Sort();
+    TArray<FString> MissingClassConfigKeys = MissingClassConfigFlagKeyNames.Array();
+    MissingClassConfigKeys.Sort();
+    TArray<FString> MissingComponentShapeKeys = MissingComponentOverrideKeyNames.Array();
+    MissingComponentShapeKeys.Sort();
+
+    TSharedPtr<FJsonObject> Report = MakeShareable(new FJsonObject);
+    Report->SetStringField(TEXT("analysisType"), TEXT("ConverterReadyValidation"));
+    Report->SetStringField(TEXT("validationTimestamp"), FDateTime::Now().ToString());
+    Report->SetStringField(TEXT("exportDirectory"), ExportDir);
+    Report->SetStringField(TEXT("manifestPath"), ManifestPath);
+    Report->SetBoolField(TEXT("overallPass"), bOverallPass);
+    Report->SetNumberField(TEXT("blueprintFileCount"), BlueprintFileCount);
+    Report->SetNumberField(TEXT("parseErrors"), ParseErrors);
+    Report->SetNumberField(TEXT("missingRequiredExports"), MissingRequiredExports);
+
+    TSharedPtr<FJsonObject> Gates = MakeShareable(new FJsonObject);
+    Gates->SetBoolField(TEXT("manifestPresent"), bGateManifestPresent);
+    Gates->SetBoolField(TEXT("manifestCountsMatch"), bGateManifestCounts);
+    Gates->SetBoolField(TEXT("parseErrorsZero"), bGateParse);
+    Gates->SetBoolField(TEXT("requiredKeysPresent"), bGateRequiredKeys);
+    Gates->SetBoolField(TEXT("variableDeclarationCoverage"), bGateVariableDeclarations);
+    Gates->SetBoolField(TEXT("functionDeclarationCoverage"), bGateFunctionDeclarations);
+    Gates->SetBoolField(TEXT("classConfigFlagShape"), bGateClassConfigShape);
+    Gates->SetBoolField(TEXT("componentOverrideShape"), bGateComponentShape);
+    Gates->SetBoolField(TEXT("dependencyClosureCoverage"), bGateDependencyClosureCoverage);
+    Gates->SetBoolField(TEXT("includeHintsCoverage"), bGateIncludeHintsCoverage);
+    Report->SetObjectField(TEXT("gates"), Gates);
+
+    TSharedPtr<FJsonObject> ManifestSummary = MakeShareable(new FJsonObject);
+    ManifestSummary->SetNumberField(TEXT("total"), ManifestTotal);
+    ManifestSummary->SetNumberField(TEXT("successCount"), ManifestSuccessCount);
+    ManifestSummary->SetNumberField(TEXT("failCount"), ManifestFailCount);
+    Report->SetObjectField(TEXT("manifestSummary"), ManifestSummary);
+
+    TSharedPtr<FJsonObject> Metrics = MakeShareable(new FJsonObject);
+    Metrics->SetNumberField(TEXT("dependencyClosureNonEmpty"), DependencyClosureNonEmpty);
+    Metrics->SetNumberField(TEXT("includeHintsNonEmpty"), IncludeHintsNonEmpty);
+    Metrics->SetNumberField(TEXT("userStructSchemaNonEmpty"), UserStructSchemaNonEmpty);
+    Metrics->SetNumberField(TEXT("userEnumSchemaNonEmpty"), UserEnumSchemaNonEmpty);
+    Metrics->SetNumberField(TEXT("userStructFieldCount"), UserStructFieldCount);
+    Metrics->SetNumberField(TEXT("userEnumValueCount"), UserEnumValueCount);
+    Metrics->SetNumberField(TEXT("variablesWithDeclarationSpecifiers"), VariableWithDeclarationSpecifiers);
+    Metrics->SetNumberField(TEXT("variablesTotal"), VariableTotal);
+    Metrics->SetNumberField(TEXT("functionsWithDeclarationSpecifiers"), FunctionWithDeclarationSpecifiers);
+    Metrics->SetNumberField(TEXT("functionsTotal"), FunctionTotal);
+    Metrics->SetNumberField(TEXT("componentsTotal"), ComponentTotal);
+    Metrics->SetNumberField(TEXT("componentsInherited"), ComponentInheritedCount);
+    Metrics->SetNumberField(TEXT("componentsHasInheritableOverride"), ComponentHasOverrideCount);
+    Metrics->SetNumberField(TEXT("componentsWithOverrideDelta"), ComponentWithOverrideDeltaCount);
+    Metrics->SetNumberField(TEXT("exportsWithInheritableOverride"), ExportsWithOverrideCount);
+    Metrics->SetNumberField(TEXT("classConfigFlagsPresent"), ClassConfigFlagsPresentCount);
+    Metrics->SetNumberField(TEXT("exportsMissingClassConfigFlagKeys"), ExportsMissingClassConfigFlagKeys);
+    Metrics->SetNumberField(TEXT("componentsMissingOverrideShape"), ComponentsMissingOverrideShape);
+    Report->SetObjectField(TEXT("metrics"), Metrics);
+
+    Report->SetArrayField(TEXT("missingTopLevelKeys"), [&MissingTopLevelKeys]()
+    {
+        TArray<TSharedPtr<FJsonValue>> Out;
+        for (const FString& Key : MissingTopLevelKeys)
+        {
+            Out.Add(MakeShareable(new FJsonValueString(Key)));
+        }
+        return Out;
+    }());
+
+    Report->SetArrayField(TEXT("missingClassConfigFlagKeys"), [&MissingClassConfigKeys]()
+    {
+        TArray<TSharedPtr<FJsonValue>> Out;
+        for (const FString& Key : MissingClassConfigKeys)
+        {
+            Out.Add(MakeShareable(new FJsonValueString(Key)));
+        }
+        return Out;
+    }());
+
+    Report->SetArrayField(TEXT("missingComponentOverrideShapeKeys"), [&MissingComponentShapeKeys]()
+    {
+        TArray<TSharedPtr<FJsonValue>> Out;
+        for (const FString& Key : MissingComponentShapeKeys)
+        {
+            Out.Add(MakeShareable(new FJsonValueString(Key)));
+        }
+        return Out;
+    }());
+
+    FString ReportPath;
+    if (Args.Num() > 1)
+    {
+        ReportPath = CleanConsoleArg(Args[1]);
+        if (FPaths::IsRelative(ReportPath))
+        {
+            ReportPath = FPaths::ConvertRelativePathToFull(AbsoluteProjectDir, ReportPath);
+        }
+        else
+        {
+            ReportPath = FPaths::ConvertRelativePathToFull(ReportPath);
+        }
+    }
+    else
+    {
+        ReportPath = FPaths::Combine(ExportDir, FString::Printf(TEXT("BP_SLZR_ValidationReport_%s.json"), *UDataExportManager::GetTimestamp()));
+    }
+
+    FPaths::NormalizeFilename(ReportPath);
+    FPaths::CollapseRelativeDirectories(ReportPath);
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(ReportPath), true);
+
+    FString ReportJson;
+    const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&ReportJson);
+    FJsonSerializer::Serialize(Report.ToSharedRef(), Writer);
+
+    const bool bSaved = FFileHelper::SaveStringToFile(ReportJson, *ReportPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+
+    UE_LOG(LogTemp, Log, TEXT("✅ Converter-ready validation completed. OverallPass=%s"), bOverallPass ? TEXT("true") : TEXT("false"));
+    UE_LOG(LogTemp, Log, TEXT("   Blueprints=%d ParseErrors=%d MissingRequired=%d"), BlueprintFileCount, ParseErrors, MissingRequiredExports);
+    UE_LOG(LogTemp, Log, TEXT("   Components total=%d inherited=%d overrides=%d deltas=%d"), ComponentTotal, ComponentInheritedCount, ComponentHasOverrideCount, ComponentWithOverrideDeltaCount);
+    UE_LOG(LogTemp, Log, TEXT("   Dependency closure non-empty=%d includeHints non-empty=%d"), DependencyClosureNonEmpty, IncludeHintsNonEmpty);
+    UE_LOG(LogTemp, Log, TEXT("   Validation report: %s%s"), *ReportPath, bSaved ? TEXT("") : TEXT(" (save failed)"));
+
+    if (GEngine)
+    {
+        const FColor StatusColor = bOverallPass ? FColor::Green : FColor::Yellow;
+        GEngine->AddOnScreenDebugMessage(-1, 10.0f, StatusColor,
+            FString::Printf(TEXT("Converter validation: %s (%d blueprints)"), bOverallPass ? TEXT("PASS") : TEXT("WARN"), BlueprintFileCount));
     }
 #else
     UE_LOG(LogTemp, Warning, TEXT("Blueprint extraction only available in editor builds"));

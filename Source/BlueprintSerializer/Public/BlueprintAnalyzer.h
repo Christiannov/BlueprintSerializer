@@ -948,6 +948,9 @@ struct BLUEPRINTSERIALIZER_API FBS_BlueprintData
 	FString ClassConfigName;
 
 	UPROPERTY()
+	TMap<FString, bool> ClassConfigFlags;
+
+	UPROPERTY()
 	TMap<FString, FString> ClassDefaultValues;
 
 	UPROPERTY()

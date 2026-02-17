@@ -21,6 +21,7 @@
  * - BP_SLZR.ExtractAssetDependencies - Dependency analysis
  * - BP_SLZR.ExtractProjectDependencyMap - Project-wide dependency map
  * - BP_SLZR.MapAssetNetwork - Asset network mapping
+ * - BP_SLZR.ValidateConverterReady - Validate converter-ready export gates
  */
 class BLUEPRINTSERIALIZER_API FBlueprintExtractorCommands
 {
@@ -36,6 +37,7 @@ private:
     static void AnalyzeSpecificBlueprint(const TArray<FString>& Args);
     static void ExportMultipleBlueprints(const TArray<FString>& Args);
     static void CountProjectBlueprints(const TArray<FString>& Args);
+    static void ValidateConverterReady(const TArray<FString>& Args);
 
     // Dependency mapping commands
     static void ExtractAssetDependencies(const TArray<FString>& Args);

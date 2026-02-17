@@ -161,6 +161,28 @@ Batch sampled:
   - `inheritableSourceTemplatePath`, `inheritableOverrideTemplatePath`
   - `inheritableOverrideProperties`, `inheritableOverrideValues`, `inheritableParentValues`
 
+## Class config + validation gate automation batch (2026-02-17)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_All_20260217_1/*.json`
+- Manifest: `Saved/BlueprintExports/BP_SLZR_All_20260217_1/BP_SLZR_Manifest_20260216_221309.json`
+- Validation report: `Saved/BlueprintExports/BP_SLZR_All_20260217_1/BP_SLZR_ValidationReport_20260217_005135.json`
+
+- Full export command succeeds: `BP_SLZR.ExportAllBlueprints Saved/BlueprintExports/BP_SLZR_All_20260217_1` -> `Success: 485, Failed: 0`.
+- Added class config parity map to every export:
+  - `classConfigFlags` object with keys:
+    - `isConfigClass`, `isDefaultConfig`, `isPerObjectConfig`, `isGlobalUserConfig`, `isProjectUserConfig`, `isPerPlatformConfig`, `configDoesNotCheckDefaults`, `hasConfigName`
+  - coverage: `485/485` exports include `classConfigFlags`; missing required class-config keys: `0/485`
+- Automated converter validation command implemented and validated:
+  - command: `BP_SLZR.ValidateConverterReady [ExportDir] [ReportPath]`
+  - gate result for this batch: `overallPass=true`
+  - gate checks now automated for: manifest parity, parse errors, required key presence, declaration-specifier coverage, class-config shape, component-override shape, dependency closure/include-hint coverage.
+- Re-validated on later full export batch with latest command logic:
+  - `BP_SLZR.ValidateConverterReady` on `Saved/BlueprintExports/BP_SLZR_All_20260217_2`
+  - report: `Saved/BlueprintExports/BP_SLZR_All_20260217_2/BP_SLZR_ValidationReport_20260217_024410.json`
+  - result remained `overallPass=true` with full gate pass.
+
 ## C++ complete conversion focus (primary)
 
 This section defines the must-have subset for "things usually done in C++".
@@ -199,14 +221,14 @@ Notes:
 | CR-013 | Curve fidelity | Add vector/transform/material/morph curve extraction where available | todo | currently float-curve path only |
 | CR-014 | Dependency closure | Emit converter-facing dependency closure manifest (types/modules/includes) | in_progress | `dependencyClosure` now emits class/struct/enum/interface/asset/control-rig/module sets plus `includeHints`; higher-fidelity include/module mapping still pending |
 | CR-015 | Tooling parity | Implement missing module entrypoints (`BP_SLZR.Serialize`, selected serialize, context generation) | done | wired module commands + implemented `GenerateLLMContext()` |
-| CR-016 | Validation gates | Automate converter-ready gate checks and publish pass/fail report per run | todo | currently manual ad-hoc checks |
+| CR-016 | Validation gates | Automate converter-ready gate checks and publish pass/fail report per run | done | `BP_SLZR.ValidateConverterReady` now emits per-run JSON report with gate-level pass/fail + coverage metrics |
 | CR-017 | Legacy path cleanup | Replace/remove `AnalyzeNodeDetails` temporary stub path to avoid partial legacy behavior | todo | `BlueprintAnalyzer.cpp` contains disabled legacy node-analysis stub |
 | CR-018 | Command surface consistency | Unify command entrypoints so all public commands use the same extraction/export pipeline | in_progress | major path now unified; legacy extractor command surface still exists |
 | CR-019 | Delegate model | Extract dispatcher declarations + delegate signature graphs as converter IR | in_progress | delegate signatures + delegate graph coverage now exported |
 | CR-020 | Timeline model | Extract `UTimelineTemplate` tracks/keys/events/length/loop settings (not only node name) | in_progress | timeline template/track/key metadata now exported |
 | CR-021 | Function locals | Extract function-local variable declarations/defaults/scopes from function entry metadata | in_progress | local variable declarations now exported |
 | CR-022 | Type fidelity | Export full variable type model (container kind, key/value type, object/class path) for member vars/functions | in_progress | added category/subcategory/object-path/container flags |
-| CR-023 | Class/component overrides | Export inheritable component overrides and class-level config flags relevant to generated C++ | in_progress | inheritable component override metadata/delta fields now emitted; expand override-depth and edge-case coverage |
+| CR-023 | Class/component overrides | Export inheritable component overrides and class-level config flags relevant to generated C++ | in_progress | inheritable override metadata/delta fields plus class-level `classConfigFlags` now emitted; expand override-depth edge cases |
 | CR-024 | Class defaults | Export class default object (CDO) property delta for converter-visible gameplay settings | in_progress | `classDefaultValues` + `classDefaultValueDelta` now emitted; filtering/scope tuning still pending |
 | CR-025 | Symbol identity | Export fully-qualified paths for parent classes, interfaces, types, and callable owners | in_progress | class/interface/type paths now exported in primary schema |
 | CR-026 | Graph coverage | Include delegate/collapsed/other relevant editable graphs beyond Ubergraph/Function/Macro | in_progress | added delegate/event coverage and construction role tagging |
@@ -254,3 +276,6 @@ For each completed task:
 - 2026-02-16: Expanded dependency closure output with generated `includeHints` and validated full-batch include-hint coverage (`485/485` non-empty).
 - 2026-02-16: Added user-defined type schema export (`userDefinedStructSchemas`, `userDefinedEnumSchemas`) and validated coverage on full export batch (`42/485` struct-schema exports, `53/485` enum-schema exports).
 - 2026-02-17: Added inheritable component override payload fields (owner/class key/template paths plus per-property parent/override deltas), expanded component extraction across Blueprint class hierarchy, and validated full-batch override coverage (`isInherited=205/818`, `hasInheritableOverride=18/818`, `override deltas=16/818`).
+- 2026-02-17: Added class-level config parity map (`classConfigFlags`) and validated full-batch key-shape coverage (`485/485` exports, `0` missing required config-flag keys).
+- 2026-02-17: Implemented `BP_SLZR.ValidateConverterReady` gate command to automate manifest/schema/coverage checks and emit a per-run validation report (`overallPass=true` on `BP_SLZR_All_20260217_1`).
+- 2026-02-17: Re-ran `BP_SLZR.ValidateConverterReady` on later full batch `BP_SLZR_All_20260217_2` and confirmed sustained gate pass (`overallPass=true`; report `BP_SLZR_ValidationReport_20260217_024410.json`).

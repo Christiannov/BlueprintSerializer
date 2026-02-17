@@ -42,6 +42,7 @@ Must capture:
 - default values with typed serialization (not only lossy strings)
 - function signatures with explicit typed inputs/outputs/return
 - declaration-level metadata needed for parity (`UPROPERTY`/`UFUNCTION`/class specifier-relevant flags)
+- class config identity and behavior flags used by generated C++ (`classConfigName`, `classConfigFlags`)
 
 ## 2.2 Function and graph behavior
 
@@ -69,6 +70,7 @@ Must capture:
 - component asset references/material/skeletal/static mesh bindings
 - construction-script behavior graph
 - inheritable component overrides from parent Blueprints
+- parent/override component template identity and per-property override deltas
 
 ## 2.5 Dependencies and closure
 
@@ -83,7 +85,7 @@ Must capture:
 - animation assets reachable from nodes/rules/layers (with notifies/curves/sections/markers)
 - control rig linkage plus rig details needed to reproduce logic surfaces
 
-## 3) Current gaps in this build (as of 2026-02-14)
+## 3) Current gaps in this build (as of 2026-02-17)
 
 The build is improved, but not yet converter-perfect.
 
@@ -92,27 +94,15 @@ Known gaps:
 - ControlRig detection is partial in latest batch (20 AnimBPs detected, control rigs extracted for 3).
 - Gameplay tags are best-effort from anim variable naming/type heuristics, not full tag flow extraction.
 - ControlRig detail fields are emitted but currently unpopulated (`controls`, `bones`, `controlToBoneMap`, feature maps).
-- Component extraction is incomplete (`parentComponent` is hardcoded `Unknown`; property values use type names only).
-- Component-level `assetReferences` are currently not populated.
-- Function metadata is partial (`returnType` is emitted but not populated; RPC/reliability flags are not exported).
-- Delegate/event-dispatcher signature graphs are not exported (`DelegateSignatureGraphs` not covered).
-- Timeline templates are not exported (only timeline node name metadata is captured).
-- Function-local variable declarations/defaults are not exported.
-- Type model is still lossy in detailed function/variable output (insufficient for deterministic type reconstruction).
-- Class default object (CDO) property deltas are not exported as a class-default layer.
-- Symbol identity is inconsistent (several fields use short names instead of fully-qualified paths).
-- Graph extraction currently iterates only Ubergraph/Function/Macro arrays, not all editable graph categories.
-- Declaration-specifier metadata is incomplete for parity-grade header generation.
+- Include/module mapping quality in dependency closure still needs deeper accuracy for compile-ready generated code.
+- Some inheritable override edge-cases still need deeper coverage validation across larger parent-chain corpora.
 - Transition detail is partial (only some transition fields are populated; several remain defaults unless added).
 - Animation curves currently extract float curves only; vector/transform curve payloads are not populated.
 - Anim notify extended fields (`triggeredEventName`, `eventParameters`) are emitted but currently not populated.
 - Optional compiler-IR/bytecode fallback export is not available for hard-to-lower node cases.
 
 Minor/polish gaps (still worth tracking):
-- Blueprint namespace/imported-namespace metadata is not exported.
-- Construction-script role is not explicitly tagged in graph metadata.
 - Some output surfaces use mixed naming conventions/schema shapes (increases parser branching).
-- Top-level batch ordering is not explicitly normalized for full diff determinism.
 - Legacy/active data-model surfaces should be consolidated to avoid long-term schema drift.
 - External macro dependency wiring should be made explicit for deterministic cross-blueprint conversion.
 
@@ -131,3 +121,4 @@ A run is converter-ready only when all pass:
 - Schema contract passes (`FULL_EXTRACTION_DEFINITION.md`).
 - Converter-grade fields above are populated (not default/placeholder) for the validation corpus.
 - Validation corpus re-generation has no critical semantic gaps for target converter.
+- Automated gate report passes for the batch (`BP_SLZR.ValidateConverterReady` overall pass + gate-level pass).

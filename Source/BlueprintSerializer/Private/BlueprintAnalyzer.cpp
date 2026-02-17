@@ -3841,6 +3841,7 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 	JsonObject->SetStringField(TEXT("extractionTimestamp"), Data.ExtractionTimestamp);
 	JsonObject->SetStringField(TEXT("classConfigName"), Data.ClassConfigName);
 	JsonObject->SetArrayField(TEXT("classSpecifiers"), BuildStringArray(Data.ClassSpecifiers));
+	AddSortedBoolMap(JsonObject, TEXT("classConfigFlags"), Data.ClassConfigFlags);
 	AddSortedStringMap(JsonObject, TEXT("classDefaultValues"), Data.ClassDefaultValues);
 	AddSortedStringMap(JsonObject, TEXT("classDefaultValueDelta"), Data.ClassDefaultValueDelta);
 	JsonObject->SetObjectField(TEXT("dependencyClosure"), BuildDependencyClosureJson(Data));
@@ -5426,6 +5427,7 @@ void UBlueprintAnalyzer::ExtractClassParityData(UBlueprint* Blueprint, FBS_Bluep
 {
 	OutData.ClassSpecifiers.Reset();
 	OutData.ClassConfigName.Reset();
+	OutData.ClassConfigFlags.Reset();
 	OutData.ClassDefaultValues.Reset();
 	OutData.ClassDefaultValueDelta.Reset();
 
@@ -5445,7 +5447,28 @@ void UBlueprintAnalyzer::ExtractClassParityData(UBlueprint* Blueprint, FBS_Bluep
 		OutData.ClassSpecifiers.AddUnique(Specifier);
 	};
 
+	auto AddClassConfigFlag = [&OutData](const TCHAR* FlagName, bool bValue)
+	{
+		OutData.ClassConfigFlags.Add(FlagName, bValue);
+	};
+
 	const EClassFlags ClassFlags = BlueprintClass->GetClassFlags();
+	const bool bIsConfigClass = EnumHasAnyFlags(ClassFlags, CLASS_Config);
+	const bool bIsDefaultConfig = EnumHasAnyFlags(ClassFlags, CLASS_DefaultConfig);
+	const bool bIsPerObjectConfig = EnumHasAnyFlags(ClassFlags, CLASS_PerObjectConfig);
+	const bool bIsGlobalUserConfig = EnumHasAnyFlags(ClassFlags, CLASS_GlobalUserConfig);
+	const bool bIsProjectUserConfig = EnumHasAnyFlags(ClassFlags, CLASS_ProjectUserConfig);
+	const bool bIsPerPlatformConfig = EnumHasAnyFlags(ClassFlags, CLASS_PerPlatformConfig);
+	const bool bConfigDoesNotCheckDefaults = EnumHasAnyFlags(ClassFlags, CLASS_ConfigDoNotCheckDefaults);
+
+	AddClassConfigFlag(TEXT("isConfigClass"), bIsConfigClass);
+	AddClassConfigFlag(TEXT("isDefaultConfig"), bIsDefaultConfig);
+	AddClassConfigFlag(TEXT("isPerObjectConfig"), bIsPerObjectConfig);
+	AddClassConfigFlag(TEXT("isGlobalUserConfig"), bIsGlobalUserConfig);
+	AddClassConfigFlag(TEXT("isProjectUserConfig"), bIsProjectUserConfig);
+	AddClassConfigFlag(TEXT("isPerPlatformConfig"), bIsPerPlatformConfig);
+	AddClassConfigFlag(TEXT("configDoesNotCheckDefaults"), bConfigDoesNotCheckDefaults);
+
 	if (EnumHasAnyFlags(ClassFlags, CLASS_Abstract)) AddClassSpecifier(TEXT("Abstract"));
 	if (Blueprint->BlueprintType != BPTYPE_MacroLibrary)
 	{
@@ -5458,8 +5481,13 @@ void UBlueprintAnalyzer::ExtractClassParityData(UBlueprint* Blueprint, FBS_Bluep
 	}
 	if (EnumHasAnyFlags(ClassFlags, CLASS_NotPlaceable)) AddClassSpecifier(TEXT("NotPlaceable"));
 	if (!EnumHasAnyFlags(ClassFlags, CLASS_NotPlaceable)) AddClassSpecifier(TEXT("Placeable"));
-	if (EnumHasAnyFlags(ClassFlags, CLASS_Config)) AddClassSpecifier(TEXT("Config"));
-	if (EnumHasAnyFlags(ClassFlags, CLASS_DefaultConfig)) AddClassSpecifier(TEXT("DefaultConfig"));
+	if (bIsConfigClass) AddClassSpecifier(TEXT("Config"));
+	if (bIsDefaultConfig) AddClassSpecifier(TEXT("DefaultConfig"));
+	if (bIsPerObjectConfig) AddClassSpecifier(TEXT("PerObjectConfig"));
+	if (bIsGlobalUserConfig) AddClassSpecifier(TEXT("GlobalUserConfig"));
+	if (bIsProjectUserConfig) AddClassSpecifier(TEXT("ProjectUserConfig"));
+	if (bIsPerPlatformConfig) AddClassSpecifier(TEXT("PerPlatformConfig"));
+	if (bConfigDoesNotCheckDefaults) AddClassSpecifier(TEXT("ConfigDoNotCheckDefaults"));
 	if (EnumHasAnyFlags(ClassFlags, CLASS_Transient)) AddClassSpecifier(TEXT("Transient"));
 	if (EnumHasAnyFlags(ClassFlags, CLASS_Deprecated)) AddClassSpecifier(TEXT("Deprecated"));
 	if (EnumHasAnyFlags(ClassFlags, CLASS_EditInlineNew)) AddClassSpecifier(TEXT("EditInlineNew"));
@@ -5473,7 +5501,9 @@ void UBlueprintAnalyzer::ExtractClassParityData(UBlueprint* Blueprint, FBS_Bluep
 	}
 
 	OutData.ClassConfigName = BlueprintClass->ClassConfigName.ToString();
-	if (!OutData.ClassConfigName.IsEmpty() && !OutData.ClassConfigName.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+	const bool bHasConfigName = !OutData.ClassConfigName.IsEmpty() && !OutData.ClassConfigName.Equals(TEXT("None"), ESearchCase::IgnoreCase);
+	AddClassConfigFlag(TEXT("hasConfigName"), bHasConfigName);
+	if (bHasConfigName)
 	{
 		AddClassSpecifier(TEXT("ConfigNamed"));
 	}
