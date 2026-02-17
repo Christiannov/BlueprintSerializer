@@ -85,6 +85,7 @@ Must capture:
 - complete AnimGraph state machines/transitions/rules/pin links
 - animation assets reachable from nodes/rules/layers (with notifies/curves/sections/markers)
 - control rig linkage plus rig details needed to reproduce logic surfaces
+- control-rig hierarchy detail payload (`controls`, `bones`, feature/settings maps) with stable shape
 
 ## 3) Current gaps in this build (as of 2026-02-17)
 
@@ -94,7 +95,7 @@ Known gaps:
 - Animation asset breadth is low in latest batch (20 AnimBPs detected, assets extracted for 1).
 - ControlRig detection is partial in latest batch (20 AnimBPs detected, control rigs extracted for 3).
 - Gameplay tags are best-effort from anim variable naming/type heuristics, not full tag flow extraction.
-- ControlRig detail fields are emitted but currently unpopulated (`controls`, `bones`, `controlToBoneMap`, feature maps).
+- ControlRig hierarchy detail is now partially populated (`controls`, `bones`, feature/settings maps), but `controlToBoneMap` and deeper control-bone semantics remain sparse.
 - Include/module mapping quality improved (`nativeIncludeHints`, `Default__` canonicalization), but module ownership/include fidelity still needs deeper compile-loop validation.
 - Some inheritable override edge-cases still need deeper coverage validation across larger parent-chain corpora.
 - Transition detail is partial (only some transition fields are populated; several remain defaults unless added).

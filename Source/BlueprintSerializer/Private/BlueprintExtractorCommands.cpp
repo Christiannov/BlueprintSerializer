@@ -717,6 +717,32 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
         return Obj.IsValid() && Obj->TryGetArrayField(FieldName, ArrayField) && ArrayField && ArrayField->Num() > 0;
     };
 
+    auto ExtractBlueprintPath = [](const TSharedPtr<FJsonObject>& Json) -> FString
+    {
+        if (!Json.IsValid())
+        {
+            return FString();
+        }
+
+        FString BlueprintPath;
+        if (Json->TryGetStringField(TEXT("blueprintPath"), BlueprintPath) && !BlueprintPath.IsEmpty())
+        {
+            return BlueprintPath;
+        }
+
+        const TSharedPtr<FJsonObject>* BlueprintInfoObj = nullptr;
+        if (Json->TryGetObjectField(TEXT("blueprintInfo"), BlueprintInfoObj)
+            && BlueprintInfoObj
+            && BlueprintInfoObj->IsValid()
+            && (*BlueprintInfoObj)->TryGetStringField(TEXT("blueprintPath"), BlueprintPath)
+            && !BlueprintPath.IsEmpty())
+        {
+            return BlueprintPath;
+        }
+
+        return FString();
+    };
+
     int32 ParseErrors = 0;
     int32 MissingRequiredExports = 0;
     int32 DependencyClosureNonEmpty = 0;
@@ -740,15 +766,85 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     int32 ComponentWithOverrideDeltaCount = 0;
     int32 ExportsWithOverrideCount = 0;
 
+    int32 ExportsWithControlRigs = 0;
+    int32 ControlRigsTotal = 0;
+    int32 ControlRigsWithControls = 0;
+    int32 ControlRigsWithBones = 0;
+    int32 ControlRigsWithControlToBoneMap = 0;
+
     int32 ClassConfigFlagsPresentCount = 0;
     int32 ExportsMissingClassConfigFlagKeys = 0;
     int32 ComponentsMissingOverrideShape = 0;
+
+    const int32 RawBlueprintFileCount = BlueprintFileNames.Num();
+    TMap<FString, FString> SelectedFileByBlueprintPath;
+    TMap<FString, FString> SelectedTimestampByBlueprintPath;
+
+    for (const FString& FileName : BlueprintFileNames)
+    {
+        const FString FullPath = FPaths::Combine(ExportDir, FileName);
+        FString Contents;
+        if (!FFileHelper::LoadFileToString(Contents, *FullPath))
+        {
+            ParseErrors++;
+            continue;
+        }
+
+        TSharedPtr<FJsonObject> Json;
+        const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Contents);
+        if (!FJsonSerializer::Deserialize(Reader, Json) || !Json.IsValid())
+        {
+            ParseErrors++;
+            continue;
+        }
+
+        FString BlueprintPath = ExtractBlueprintPath(Json);
+        if (BlueprintPath.IsEmpty())
+        {
+            BlueprintPath = FString::Printf(TEXT("__file__%s"), *FileName);
+        }
+
+        FString ExtractionTimestamp;
+        Json->TryGetStringField(TEXT("extractionTimestamp"), ExtractionTimestamp);
+
+        const FString* ExistingFile = SelectedFileByBlueprintPath.Find(BlueprintPath);
+        const FString* ExistingTimestamp = SelectedTimestampByBlueprintPath.Find(BlueprintPath);
+
+        bool bReplace = false;
+        if (!ExistingFile)
+        {
+            bReplace = true;
+        }
+        else if (!ExistingTimestamp)
+        {
+            bReplace = !ExtractionTimestamp.IsEmpty() || FileName > *ExistingFile;
+        }
+        else if (ExtractionTimestamp > *ExistingTimestamp)
+        {
+            bReplace = true;
+        }
+        else if (ExtractionTimestamp == *ExistingTimestamp && FileName > *ExistingFile)
+        {
+            bReplace = true;
+        }
+
+        if (bReplace)
+        {
+            SelectedFileByBlueprintPath.Add(BlueprintPath, FileName);
+            SelectedTimestampByBlueprintPath.Add(BlueprintPath, ExtractionTimestamp);
+        }
+    }
+
+    TArray<FString> SelectedBlueprintFileNames;
+    SelectedFileByBlueprintPath.GenerateValueArray(SelectedBlueprintFileNames);
+    SelectedBlueprintFileNames.Sort();
+    const int32 DuplicateBlueprintExportsIgnored = FMath::Max(0, RawBlueprintFileCount - SelectedBlueprintFileNames.Num());
 
     TSet<FString> MissingTopLevelKeyNames;
     TSet<FString> MissingClassConfigFlagKeyNames;
     TSet<FString> MissingComponentOverrideKeyNames;
 
-    for (const FString& FileName : BlueprintFileNames)
+    for (const FString& FileName : SelectedBlueprintFileNames)
     {
         const FString FullPath = FPaths::Combine(ExportDir, FileName);
         FString Contents;
@@ -1020,9 +1116,43 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
                 ExportsWithOverrideCount++;
             }
         }
+
+        const TArray<TSharedPtr<FJsonValue>>* ControlRigArray = nullptr;
+        if (Json->TryGetArrayField(TEXT("controlRigs"), ControlRigArray) && ControlRigArray && ControlRigArray->Num() > 0)
+        {
+            ExportsWithControlRigs++;
+
+            for (const TSharedPtr<FJsonValue>& RigValue : *ControlRigArray)
+            {
+                const TSharedPtr<FJsonObject> RigObj = RigValue.IsValid() ? RigValue->AsObject() : nullptr;
+                if (!RigObj.IsValid())
+                {
+                    continue;
+                }
+
+                ControlRigsTotal++;
+                if (HasNonEmptyArrayField(RigObj, TEXT("controls")))
+                {
+                    ControlRigsWithControls++;
+                }
+                if (HasNonEmptyArrayField(RigObj, TEXT("bones")))
+                {
+                    ControlRigsWithBones++;
+                }
+
+                const TSharedPtr<FJsonObject>* ControlToBoneMapObj = nullptr;
+                if (RigObj->TryGetObjectField(TEXT("controlToBoneMap"), ControlToBoneMapObj)
+                    && ControlToBoneMapObj
+                    && ControlToBoneMapObj->IsValid()
+                    && (*ControlToBoneMapObj)->Values.Num() > 0)
+                {
+                    ControlRigsWithControlToBoneMap++;
+                }
+            }
+        }
     }
 
-    const int32 BlueprintFileCount = BlueprintFileNames.Num();
+    const int32 BlueprintFileCount = SelectedBlueprintFileNames.Num();
     const bool bGateManifestPresent = bManifestParsed;
     const bool bGateManifestCounts = bManifestParsed && ManifestTotal == BlueprintFileCount && ManifestSuccessCount == BlueprintFileCount && ManifestFailCount == 0;
     const bool bGateParse = ParseErrors == 0;
@@ -1060,6 +1190,8 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     Report->SetStringField(TEXT("manifestPath"), ManifestPath);
     Report->SetBoolField(TEXT("overallPass"), bOverallPass);
     Report->SetNumberField(TEXT("blueprintFileCount"), BlueprintFileCount);
+    Report->SetNumberField(TEXT("rawBlueprintFileCount"), RawBlueprintFileCount);
+    Report->SetNumberField(TEXT("duplicateBlueprintExportsIgnored"), DuplicateBlueprintExportsIgnored);
     Report->SetNumberField(TEXT("parseErrors"), ParseErrors);
     Report->SetNumberField(TEXT("missingRequiredExports"), MissingRequiredExports);
 
@@ -1086,6 +1218,8 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     Metrics->SetNumberField(TEXT("dependencyClosureNonEmpty"), DependencyClosureNonEmpty);
     Metrics->SetNumberField(TEXT("includeHintsNonEmpty"), IncludeHintsNonEmpty);
     Metrics->SetNumberField(TEXT("nativeIncludeHintsNonEmpty"), NativeIncludeHintsNonEmpty);
+    Metrics->SetNumberField(TEXT("rawBlueprintFileCount"), RawBlueprintFileCount);
+    Metrics->SetNumberField(TEXT("duplicateBlueprintExportsIgnored"), DuplicateBlueprintExportsIgnored);
     Metrics->SetNumberField(TEXT("exportsWithDefaultObjectIncludeHints"), ExportsWithDefaultObjectIncludeHints);
     Metrics->SetNumberField(TEXT("exportsWithDefaultObjectClassPaths"), ExportsWithDefaultObjectClassPaths);
     Metrics->SetNumberField(TEXT("userStructSchemaNonEmpty"), UserStructSchemaNonEmpty);
@@ -1101,6 +1235,11 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     Metrics->SetNumberField(TEXT("componentsHasInheritableOverride"), ComponentHasOverrideCount);
     Metrics->SetNumberField(TEXT("componentsWithOverrideDelta"), ComponentWithOverrideDeltaCount);
     Metrics->SetNumberField(TEXT("exportsWithInheritableOverride"), ExportsWithOverrideCount);
+    Metrics->SetNumberField(TEXT("exportsWithControlRigs"), ExportsWithControlRigs);
+    Metrics->SetNumberField(TEXT("controlRigsTotal"), ControlRigsTotal);
+    Metrics->SetNumberField(TEXT("controlRigsWithControls"), ControlRigsWithControls);
+    Metrics->SetNumberField(TEXT("controlRigsWithBones"), ControlRigsWithBones);
+    Metrics->SetNumberField(TEXT("controlRigsWithControlToBoneMap"), ControlRigsWithControlToBoneMap);
     Metrics->SetNumberField(TEXT("classConfigFlagsPresent"), ClassConfigFlagsPresentCount);
     Metrics->SetNumberField(TEXT("exportsMissingClassConfigFlagKeys"), ExportsMissingClassConfigFlagKeys);
     Metrics->SetNumberField(TEXT("componentsMissingOverrideShape"), ComponentsMissingOverrideShape);
@@ -1165,8 +1304,9 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     const bool bSaved = FFileHelper::SaveStringToFile(ReportJson, *ReportPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 
     UE_LOG(LogTemp, Log, TEXT("✅ Converter-ready validation completed. OverallPass=%s"), bOverallPass ? TEXT("true") : TEXT("false"));
-    UE_LOG(LogTemp, Log, TEXT("   Blueprints=%d ParseErrors=%d MissingRequired=%d"), BlueprintFileCount, ParseErrors, MissingRequiredExports);
+    UE_LOG(LogTemp, Log, TEXT("   Blueprints=%d (raw=%d, duplicatesIgnored=%d) ParseErrors=%d MissingRequired=%d"), BlueprintFileCount, RawBlueprintFileCount, DuplicateBlueprintExportsIgnored, ParseErrors, MissingRequiredExports);
     UE_LOG(LogTemp, Log, TEXT("   Components total=%d inherited=%d overrides=%d deltas=%d"), ComponentTotal, ComponentInheritedCount, ComponentHasOverrideCount, ComponentWithOverrideDeltaCount);
+    UE_LOG(LogTemp, Log, TEXT("   ControlRigs exports=%d rigs=%d controls=%d bones=%d mapped=%d"), ExportsWithControlRigs, ControlRigsTotal, ControlRigsWithControls, ControlRigsWithBones, ControlRigsWithControlToBoneMap);
     UE_LOG(LogTemp, Log, TEXT("   Dependency closure non-empty=%d includeHints non-empty=%d nativeIncludeHints non-empty=%d"), DependencyClosureNonEmpty, IncludeHintsNonEmpty, NativeIncludeHintsNonEmpty);
     UE_LOG(LogTemp, Log, TEXT("   Exports with Default__ classPaths=%d includeHints=%d"), ExportsWithDefaultObjectClassPaths, ExportsWithDefaultObjectIncludeHints);
     UE_LOG(LogTemp, Log, TEXT("   Validation report: %s%s"), *ReportPath, bSaved ? TEXT("") : TEXT(" (save failed)"));

@@ -203,6 +203,26 @@ Batch sampled:
   - `exportsWithDefaultObjectClassPaths=0/485`
   - `exportsWithDefaultObjectIncludeHints=0/485`
 
+## ControlRig hierarchy + validation dedupe batch (2026-02-17)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_All_20260217_4/*.json`
+- Manifest: `Saved/BlueprintExports/BP_SLZR_All_20260217_4/BP_SLZR_Manifest_20260217_133208.json`
+- Validation report: `Saved/BlueprintExports/BP_SLZR_All_20260217_4/BP_SLZR_ValidationReport_20260217_145401.json`
+
+- Full export command succeeds: `BP_SLZR.ExportAllBlueprints Saved/BlueprintExports/BP_SLZR_All_20260217_4` -> `Success: 485, Failed: 0`.
+- ControlRig payload depth increased from hierarchy data:
+  - `controls`, `bones`, `enabledFeatures`, `featureSettings`, `rigProperties` now populated when ControlRig hierarchy data is available
+  - sample: `BP_SLZR_Blueprint_ABP_Mannequin_Base_da729c0c_20260217_133208.json` includes non-empty `controls` and `bones`
+- Validation command robustness improved for reused export directories:
+  - `BP_SLZR.ValidateConverterReady` now de-duplicates repeated export JSONs by `blueprintPath` and latest `extractionTimestamp`
+  - report now includes `rawBlueprintFileCount` and `duplicateBlueprintExportsIgnored`
+- Validation metrics on this batch:
+  - `overallPass=true`
+  - `blueprintFileCount=485` with `rawBlueprintFileCount=970` and `duplicateBlueprintExportsIgnored=485`
+  - `exportsWithControlRigs=3`, `controlRigsWithControls=1`, `controlRigsWithBones=3`, `controlRigsWithControlToBoneMap=0`
+
 ## C++ complete conversion focus (primary)
 
 This section defines the must-have subset for "things usually done in C++".
@@ -230,7 +250,7 @@ Notes:
 | CR-002 | Anim vars | Resolve AnimBP variable defaults robustly | in_progress | `116/117` populated; finish edge cases |
 | CR-003 | Anim assets | Increase animation asset discovery coverage from graph/rule/layer/property paths | in_progress | current `1/20` AnimBPs with assets |
 | CR-004 | ControlRig linkage | Discover and extract referenced ControlRigs from AnimBP nodes/properties | in_progress | current `3/20` AnimBPs with rigs |
-| CR-005 | ControlRig detail model | Populate `controls`, `bones`, `controlToBoneMap`, feature fields | todo | fields exist but are mostly empty |
+| CR-005 | ControlRig detail model | Populate `controls`, `bones`, `controlToBoneMap`, feature fields | in_progress | hierarchy-driven `controls`/`bones`/feature maps now populated; `controlToBoneMap` remains sparse and needs deeper mapping logic |
 | CR-006 | Gameplay tags | Replace name/type heuristics with richer tag flow extraction | todo | currently best-effort only |
 | CR-007 | Function signatures | Populate explicit return type + richer typed parameter metadata | in_progress | return/object-path metadata now exported; needs wider corpus validation |
 | CR-008 | Networking semantics | Export RPC kind/reliability/validation + RepNotify linkage | in_progress | network flags + RepNotify now exported; validation expansion pending |
@@ -241,7 +261,7 @@ Notes:
 | CR-013 | Curve fidelity | Add vector/transform/material/morph curve extraction where available | todo | currently float-curve path only |
 | CR-014 | Dependency closure | Emit converter-facing dependency closure manifest (types/modules/includes) | in_progress | emits class/struct/enum/interface/asset/control-rig/module sets plus `includeHints` and `nativeIncludeHints`; include/module fidelity still needs deeper compile-loop tuning |
 | CR-015 | Tooling parity | Implement missing module entrypoints (`BP_SLZR.Serialize`, selected serialize, context generation) | done | wired module commands + implemented `GenerateLLMContext()` |
-| CR-016 | Validation gates | Automate converter-ready gate checks and publish pass/fail report per run | done | `BP_SLZR.ValidateConverterReady` now emits per-run JSON report with gate-level pass/fail + coverage metrics |
+| CR-016 | Validation gates | Automate converter-ready gate checks and publish pass/fail report per run | done | `BP_SLZR.ValidateConverterReady` emits per-run JSON report with gate-level pass/fail + coverage metrics and now de-duplicates reused export directories |
 | CR-017 | Legacy path cleanup | Replace/remove `AnalyzeNodeDetails` temporary stub path to avoid partial legacy behavior | todo | `BlueprintAnalyzer.cpp` contains disabled legacy node-analysis stub |
 | CR-018 | Command surface consistency | Unify command entrypoints so all public commands use the same extraction/export pipeline | in_progress | major path now unified; legacy extractor command surface still exists |
 | CR-019 | Delegate model | Extract dispatcher declarations + delegate signature graphs as converter IR | in_progress | delegate signatures + delegate graph coverage now exported |
@@ -300,3 +320,5 @@ For each completed task:
 - 2026-02-17: Implemented `BP_SLZR.ValidateConverterReady` gate command to automate manifest/schema/coverage checks and emit a per-run validation report (`overallPass=true` on `BP_SLZR_All_20260217_1`).
 - 2026-02-17: Re-ran `BP_SLZR.ValidateConverterReady` on later full batch `BP_SLZR_All_20260217_2` and confirmed sustained gate pass (`overallPass=true`; report `BP_SLZR_ValidationReport_20260217_024410.json`).
 - 2026-02-17: Improved dependency closure include quality by canonicalizing `Default__` script-object class paths and emitting metadata-backed `nativeIncludeHints`; validated on `BP_SLZR_All_20260217_3` (`nativeIncludeHintsNonEmpty=485/485`, `exportsWithDefaultObjectClassPaths=0`, `exportsWithDefaultObjectIncludeHints=0`, `overallPass=true`, report `BP_SLZR_ValidationReport_20260217_122155.json`).
+- 2026-02-17: Populated ControlRig hierarchy-derived fields (`controls`, `bones`, feature maps, rig properties) and validated improved ControlRig payload coverage on `BP_SLZR_All_20260217_4` (`exportsWithControlRigs=3`, `controlRigsWithControls=1`, `controlRigsWithBones=3`).
+- 2026-02-17: Hardened `BP_SLZR.ValidateConverterReady` to de-duplicate repeated exports in reused batch directories via `blueprintPath` + latest `extractionTimestamp`; validated manifest-gate recovery on duplicated directory (`raw=970`, deduped `485`, `overallPass=true`; report `BP_SLZR_ValidationReport_20260217_145401.json`).

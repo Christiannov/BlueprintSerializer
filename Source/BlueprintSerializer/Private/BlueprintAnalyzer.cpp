@@ -3370,6 +3370,75 @@ void UBlueprintAnalyzer::ExtractControlRigGraph(UControlRigBlueprint* RigBluepri
 		}
 	}
 
+	TSet<FString> EnabledFeatures;
+	TSet<FString> ControlNameSet;
+	TSet<FString> BoneNameSet;
+	OutRigData.ControlToBoneMap.Reset();
+
+	URigHierarchy* RigHierarchy = RigBlueprint->GetHierarchy();
+	if (RigHierarchy)
+	{
+		EnabledFeatures.Add(TEXT("Hierarchy"));
+
+		const TArray<FRigElementKey> AllKeys = RigHierarchy->GetAllKeys(false, ERigElementType::All);
+		for (const FRigElementKey& Key : AllKeys)
+		{
+			const FString KeyName = Key.Name.ToString();
+			if (KeyName.IsEmpty())
+			{
+				continue;
+			}
+
+			if (Key.Type == ERigElementType::Control)
+			{
+				ControlNameSet.Add(KeyName);
+
+				const TArray<FRigElementKey> ParentKeys = RigHierarchy->GetParents(Key, true);
+				for (const FRigElementKey& ParentKey : ParentKeys)
+				{
+					if (ParentKey.Type == ERigElementType::Bone)
+					{
+						const FString ParentBoneName = ParentKey.Name.ToString();
+						if (!ParentBoneName.IsEmpty())
+						{
+							OutRigData.ControlToBoneMap.Add(KeyName, ParentBoneName);
+						}
+						break;
+					}
+				}
+			}
+			else if (Key.Type == ERigElementType::Bone)
+			{
+				BoneNameSet.Add(KeyName);
+			}
+		}
+	}
+
+	if (RigBlueprint->IsModularRig())
+	{
+		EnabledFeatures.Add(TEXT("ModularRig"));
+	}
+
+	if (RigBlueprint->IsControlRigModule())
+	{
+		EnabledFeatures.Add(TEXT("ControlRigModule"));
+	}
+
+	OutRigData.ControlNames = ControlNameSet.Array();
+	OutRigData.ControlNames.Sort();
+	OutRigData.BoneNames = BoneNameSet.Array();
+	OutRigData.BoneNames.Sort();
+	OutRigData.EnabledFeatures = EnabledFeatures.Array();
+	OutRigData.EnabledFeatures.Sort();
+
+	OutRigData.FeatureSettings.Add(TEXT("controlCount"), FString::FromInt(OutRigData.ControlNames.Num()));
+	OutRigData.FeatureSettings.Add(TEXT("boneCount"), FString::FromInt(OutRigData.BoneNames.Num()));
+	OutRigData.FeatureSettings.Add(TEXT("mappedControlCount"), FString::FromInt(OutRigData.ControlToBoneMap.Num()));
+	OutRigData.FeatureSettings.Add(TEXT("hasSkeleton"), OutRigData.SkeletonPath.IsEmpty() ? TEXT("false") : TEXT("true"));
+	OutRigData.RigProperties.Add(TEXT("rigPath"), RigBlueprint->GetPathName());
+	OutRigData.RigProperties.Add(TEXT("isModularRig"), RigBlueprint->IsModularRig() ? TEXT("true") : TEXT("false"));
+	OutRigData.RigProperties.Add(TEXT("isControlRigModule"), RigBlueprint->IsControlRigModule() ? TEXT("true") : TEXT("false"));
+
 	auto GetRigVMGraph = [RigBlueprint](const FName& GraphName) -> URigVMGraph*
 	{
 #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 4
