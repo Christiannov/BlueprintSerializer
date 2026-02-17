@@ -1,6 +1,7 @@
 #include "BlueprintAnalyzer.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "Engine/InheritableComponentHandler.h"
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
 #include "Components/ActorComponent.h"
@@ -218,6 +219,57 @@ namespace
             Result.Add(MakeShareable(new FJsonValueString(Value)));
         }
         return Result;
+    }
+
+    TArray<USCS_Node*> GatherAllConstructionScriptNodes(UBlueprint* Blueprint)
+    {
+        TArray<USCS_Node*> Nodes;
+        if (!Blueprint)
+        {
+            return Nodes;
+        }
+
+        TSet<const USCS_Node*> SeenNodes;
+
+        auto AddNodesFromSCS = [&Nodes, &SeenNodes](USimpleConstructionScript* SCS)
+        {
+            if (!SCS)
+            {
+                return;
+            }
+
+            for (USCS_Node* Node : SCS->GetAllNodes())
+            {
+                if (!Node || SeenNodes.Contains(Node))
+                {
+                    continue;
+                }
+
+                SeenNodes.Add(Node);
+                Nodes.Add(Node);
+            }
+        };
+
+        if (const UBlueprintGeneratedClass* GeneratedClass = Cast<UBlueprintGeneratedClass>(Blueprint->GeneratedClass))
+        {
+            TArray<const UBlueprintGeneratedClass*> Hierarchy;
+            if (UBlueprintGeneratedClass::GetGeneratedClassesHierarchy(GeneratedClass, Hierarchy))
+            {
+                for (int32 Index = Hierarchy.Num() - 1; Index >= 0; --Index)
+                {
+                    const UBlueprintGeneratedClass* HierarchyClass = Hierarchy[Index];
+                    if (!HierarchyClass)
+                    {
+                        continue;
+                    }
+
+                    AddNodesFromSCS(HierarchyClass->SimpleConstructionScript);
+                }
+            }
+        }
+
+        AddNodesFromSCS(Blueprint->SimpleConstructionScript);
+        return Nodes;
     }
 
     FString MakeSafeFileComponent(const FString& Input)
@@ -1036,6 +1088,27 @@ namespace
         {
             AddDependencyPath(Component.ComponentClass, Closure);
             AddDependencyText(Component.ParentOwnerClassName, Closure);
+            AddDependencyPath(Component.InheritableOwnerClassPath, Closure);
+            AddDependencyPath(Component.InheritableSourceTemplatePath, Closure);
+            AddDependencyPath(Component.InheritableOverrideTemplatePath, Closure);
+            AddDependencyText(Component.InheritableOwnerClassName, Closure);
+
+            for (const FString& OverrideProperty : Component.InheritableOverrideProperties)
+            {
+                AddDependencyText(OverrideProperty, Closure);
+            }
+
+            for (const TPair<FString, FString>& Pair : Component.InheritableOverrideValues)
+            {
+                AddDependencyText(Pair.Key, Closure);
+                AddDependencyText(Pair.Value, Closure);
+            }
+
+            for (const TPair<FString, FString>& Pair : Component.InheritableParentValues)
+            {
+                AddDependencyText(Pair.Key, Closure);
+                AddDependencyText(Pair.Value, Closure);
+            }
 
             for (const FString& Property : Component.ComponentProperties)
             {
@@ -1397,15 +1470,12 @@ TArray<FString> UBlueprintAnalyzer::ExtractComponents(UBlueprint* Blueprint)
 {
 	TArray<FString> Components;
 	
-	if (!Blueprint || !Blueprint->SimpleConstructionScript)
+	if (!Blueprint)
 	{
 		return Components;
 	}
 	
-	// Extract components from Simple Construction Script
-	TArray<USCS_Node*> AllNodes = Blueprint->SimpleConstructionScript->GetAllNodes();
-	
-	for (USCS_Node* Node : AllNodes)
+	for (USCS_Node* Node : GatherAllConstructionScriptNodes(Blueprint))
 	{
 		if (Node && Node->ComponentClass)
 		{
@@ -4018,6 +4088,15 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 		CompObj->SetBoolField(TEXT("isRootComponent"), CompInfo.bIsRootComponent);
 		CompObj->SetBoolField(TEXT("isInherited"), CompInfo.bIsInherited);
 		CompObj->SetBoolField(TEXT("isParentComponentNative"), CompInfo.bIsParentComponentNative);
+		CompObj->SetBoolField(TEXT("hasInheritableOverride"), CompInfo.bHasInheritableOverride);
+		CompObj->SetStringField(TEXT("inheritableOwnerClassPath"), CompInfo.InheritableOwnerClassPath);
+		CompObj->SetStringField(TEXT("inheritableOwnerClassName"), CompInfo.InheritableOwnerClassName);
+		CompObj->SetStringField(TEXT("inheritableComponentGuid"), CompInfo.InheritableComponentGuid);
+		CompObj->SetStringField(TEXT("inheritableSourceTemplatePath"), CompInfo.InheritableSourceTemplatePath);
+		CompObj->SetStringField(TEXT("inheritableOverrideTemplatePath"), CompInfo.InheritableOverrideTemplatePath);
+		CompObj->SetArrayField(TEXT("inheritableOverrideProperties"), BuildStringArray(CompInfo.InheritableOverrideProperties));
+		AddSortedStringMap(CompObj, TEXT("inheritableOverrideValues"), CompInfo.InheritableOverrideValues);
+		AddSortedStringMap(CompObj, TEXT("inheritableParentValues"), CompInfo.InheritableParentValues);
 		
 		TArray<TSharedPtr<FJsonValue>> PropArray;
 		for (const FString& Prop : CompInfo.ComponentProperties)
@@ -6271,19 +6350,96 @@ TArray<FBS_ComponentInfo> UBlueprintAnalyzer::ExtractDetailedComponents(UBluepri
 		return DetailedComps;
 	}
 
-	for (USCS_Node* Node : Blueprint->SimpleConstructionScript->GetAllNodes())
+	UBlueprintGeneratedClass* GeneratedClass = Cast<UBlueprintGeneratedClass>(Blueprint->GeneratedClass);
+	UInheritableComponentHandler* InheritableHandler = GeneratedClass ? GeneratedClass->GetInheritableComponentHandler(false) : nullptr;
+
+	auto ExtractOverrideDelta = [](UActorComponent* OverrideTemplate, UActorComponent* ParentTemplate, TMap<FString, FString>& OutOverrideValues, TMap<FString, FString>& OutParentValues, TArray<FString>& OutChangedProperties)
 	{
-		if (!Node || !Node->ComponentTemplate)
+		if (!OverrideTemplate || !ParentTemplate)
+		{
+			return;
+		}
+
+		UClass* OverrideClass = OverrideTemplate->GetClass();
+		UClass* ParentClass = ParentTemplate->GetClass();
+		if (!OverrideClass || !ParentClass)
+		{
+			return;
+		}
+
+		for (FProperty* Property : TFieldRange<FProperty>(OverrideClass))
+		{
+			if (!Property || !Property->HasAnyPropertyFlags(CPF_Edit) || Property->HasAnyPropertyFlags(CPF_Deprecated))
+			{
+				continue;
+			}
+
+			FProperty* ParentProperty = FindFProperty<FProperty>(ParentClass, Property->GetFName());
+			if (!ParentProperty || ParentProperty->HasAnyPropertyFlags(CPF_Deprecated))
+			{
+				continue;
+			}
+
+			const FString OverrideValue = GetPropertyValueAsString(OverrideTemplate, Property);
+			const FString ParentValue = GetPropertyValueAsString(ParentTemplate, ParentProperty);
+			if (OverrideValue == ParentValue)
+			{
+				continue;
+			}
+
+			const FString PropertyName = Property->GetName();
+			OutOverrideValues.Add(PropertyName, OverrideValue);
+			OutParentValues.Add(PropertyName, ParentValue);
+			OutChangedProperties.Add(PropertyName);
+		}
+
+		OutChangedProperties.Sort();
+	};
+
+	for (USCS_Node* Node : GatherAllConstructionScriptNodes(Blueprint))
+	{
+		if (!Node)
+		{
+			continue;
+		}
+
+		UActorComponent* ComponentTemplate = Node->ComponentTemplate;
+		if (GeneratedClass)
+		{
+			if (UActorComponent* ActualTemplate = Node->GetActualComponentTemplate(GeneratedClass))
+			{
+				ComponentTemplate = ActualTemplate;
+			}
+		}
+
+		if (!ComponentTemplate)
 		{
 			continue;
 		}
 
 		FBS_ComponentInfo CompInfo;
 		CompInfo.ComponentName = Node->GetVariableName().ToString();
-		CompInfo.ComponentClass = Node->ComponentTemplate->GetClass()->GetPathName();
+		CompInfo.ComponentClass = ComponentTemplate->GetClass()->GetPathName();
 		CompInfo.bIsRootComponent = Node->IsRootNode();
 		CompInfo.bIsParentComponentNative = Node->bIsParentComponentNative;
 		CompInfo.ParentOwnerClassName = Node->ParentComponentOwnerClassName.ToString();
+
+		const FComponentKey ComponentKey(Node);
+		if (ComponentKey.IsValid())
+		{
+			if (UClass* OwnerClass = ComponentKey.GetComponentOwner())
+			{
+				CompInfo.InheritableOwnerClassPath = OwnerClass->GetPathName();
+				CompInfo.InheritableOwnerClassName = OwnerClass->GetName();
+
+				if (Blueprint->GeneratedClass && OwnerClass != Blueprint->GeneratedClass)
+				{
+					CompInfo.bIsInherited = true;
+				}
+			}
+
+			CompInfo.InheritableComponentGuid = ComponentKey.GetAssociatedGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+		}
 
 		if (Node->ParentComponentOrVariableName != NAME_None)
 		{
@@ -6294,17 +6450,37 @@ TArray<FBS_ComponentInfo> UBlueprintAnalyzer::ExtractDetailedComponents(UBluepri
 			CompInfo.ParentComponent = CompInfo.bIsRootComponent ? TEXT("None") : TEXT("Unknown");
 		}
 
-		if (Blueprint->GeneratedClass && Node->ComponentTemplate->GetOuter() != Blueprint->GeneratedClass)
+		if (!CompInfo.bIsInherited && Blueprint->GeneratedClass && ComponentTemplate->GetOuter() != Blueprint->GeneratedClass)
 		{
 			CompInfo.bIsInherited = true;
 		}
 
-		if (USceneComponent* SceneComp = Cast<USceneComponent>(Node->ComponentTemplate))
+		UActorComponent* OverrideTemplate = nullptr;
+		UActorComponent* SourceTemplate = nullptr;
+		if (InheritableHandler && ComponentKey.IsValid())
+		{
+			OverrideTemplate = InheritableHandler->GetOverridenComponentTemplate(ComponentKey);
+			if (OverrideTemplate)
+			{
+				CompInfo.bHasInheritableOverride = true;
+				CompInfo.InheritableOverrideTemplatePath = OverrideTemplate->GetPathName();
+
+				SourceTemplate = ComponentKey.GetOriginalTemplate(Node->GetVariableName());
+				if (SourceTemplate)
+				{
+					CompInfo.InheritableSourceTemplatePath = SourceTemplate->GetPathName();
+				}
+			}
+		}
+
+		UActorComponent* PropertySourceTemplate = OverrideTemplate ? OverrideTemplate : ComponentTemplate;
+
+		if (USceneComponent* SceneComp = Cast<USceneComponent>(PropertySourceTemplate))
 		{
 			CompInfo.Transform = SceneComp->GetRelativeTransform().ToString();
 		}
 
-		UClass* CompClass = Node->ComponentTemplate->GetClass();
+		UClass* CompClass = PropertySourceTemplate->GetClass();
 		for (FProperty* Property : TFieldRange<FProperty>(CompClass))
 		{
 			if (!Property || !Property->HasAnyPropertyFlags(CPF_Edit) || Property->HasAnyPropertyFlags(CPF_Deprecated))
@@ -6313,7 +6489,7 @@ TArray<FBS_ComponentInfo> UBlueprintAnalyzer::ExtractDetailedComponents(UBluepri
 			}
 
 			const FString PropertyType = DescribePropertyType(Property);
-			const FString PropertyValue = GetPropertyValueAsString(Node->ComponentTemplate, Property);
+			const FString PropertyValue = GetPropertyValueAsString(PropertySourceTemplate, Property);
 			if (!PropertyType.IsEmpty())
 			{
 				if (!PropertyValue.IsEmpty())
@@ -6330,19 +6506,25 @@ TArray<FBS_ComponentInfo> UBlueprintAnalyzer::ExtractDetailedComponents(UBluepri
 		TSet<FString> ComponentAssetReferences;
 		TArray<UObject*> ReferencedObjects;
 		FReferenceFinder ComponentRefCollector(ReferencedObjects, nullptr, false, true, false, true);
-		ComponentRefCollector.FindReferences(Node->ComponentTemplate);
+		ComponentRefCollector.FindReferences(PropertySourceTemplate);
 
 		for (UObject* ReferencedObject : ReferencedObjects)
 		{
-			if (ReferencedObject && ReferencedObject != Node->ComponentTemplate)
+			if (ReferencedObject && ReferencedObject != PropertySourceTemplate)
 			{
 				AddCandidatePath(ReferencedObject->GetPathName(), ComponentAssetReferences);
 			}
 		}
 
+		if (CompInfo.bHasInheritableOverride)
+		{
+			ExtractOverrideDelta(OverrideTemplate ? OverrideTemplate : PropertySourceTemplate, SourceTemplate, CompInfo.InheritableOverrideValues, CompInfo.InheritableParentValues, CompInfo.InheritableOverrideProperties);
+		}
+
 		CompInfo.ComponentProperties.Sort();
 		CompInfo.AssetReferences = ComponentAssetReferences.Array();
 		CompInfo.AssetReferences.Sort();
+		CompInfo.InheritableOverrideProperties.Sort();
 
 		DetailedComps.Add(MoveTemp(CompInfo));
 	}

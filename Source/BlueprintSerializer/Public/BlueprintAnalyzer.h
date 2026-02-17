@@ -127,6 +127,33 @@ struct BLUEPRINTSERIALIZER_API FBS_ComponentInfo
 
 	UPROPERTY()
 	FString ParentOwnerClassName;
+
+	UPROPERTY()
+	bool bHasInheritableOverride = false;
+
+	UPROPERTY()
+	FString InheritableOwnerClassPath;
+
+	UPROPERTY()
+	FString InheritableOwnerClassName;
+
+	UPROPERTY()
+	FString InheritableComponentGuid;
+
+	UPROPERTY()
+	FString InheritableSourceTemplatePath;
+
+	UPROPERTY()
+	FString InheritableOverrideTemplatePath;
+
+	UPROPERTY()
+	TArray<FString> InheritableOverrideProperties;
+
+	UPROPERTY()
+	TMap<FString, FString> InheritableOverrideValues;
+
+	UPROPERTY()
+	TMap<FString, FString> InheritableParentValues;
 };
 
 /**

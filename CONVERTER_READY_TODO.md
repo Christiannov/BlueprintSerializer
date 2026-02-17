@@ -140,6 +140,27 @@ Batch sampled:
   - `dependencyClosure.includeHints` emitted and non-empty in `485/485` exports.
   - `dependencyClosure` remains non-empty in `485/485` exports.
 
+## Inheritable component override expansion batch (2026-02-17)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_All_20260216_9/*.json`
+- Manifest: `Saved/BlueprintExports/BP_SLZR_All_20260216_9/BP_SLZR_Manifest_20260216_202941.json`
+- Override sample: `Saved/BlueprintExports/BP_SLZR_All_20260216_9/BP_SLZR_Blueprint_BakableTwistyBoxDemo_5d3277da_20260216_202920.json`
+
+- Full export command succeeds: `BP_SLZR.ExportAllBlueprints Saved/BlueprintExports/BP_SLZR_All_20260216_9` -> `Success: 485, Failed: 0`.
+- Full-batch parseability: `485/485` export files parse as UTF-8 JSON.
+- Existing parity keys remain stable (including prior class/default/dependency/user-type fields): `0/485` missing required-key checks.
+- Component hierarchy/override coverage in this batch:
+  - total `detailedComponents`: `818`
+  - `isInherited=true`: `205/818`
+  - `hasInheritableOverride=true`: `18/818` (appears in `12/485` exports)
+  - non-empty `inheritableOverrideProperties`: `16/818`
+- Override delta payload now emitted per component (when present):
+  - `hasInheritableOverride`, `inheritableOwnerClassPath`, `inheritableComponentGuid`
+  - `inheritableSourceTemplatePath`, `inheritableOverrideTemplatePath`
+  - `inheritableOverrideProperties`, `inheritableOverrideValues`, `inheritableParentValues`
+
 ## C++ complete conversion focus (primary)
 
 This section defines the must-have subset for "things usually done in C++".
@@ -185,7 +206,7 @@ Notes:
 | CR-020 | Timeline model | Extract `UTimelineTemplate` tracks/keys/events/length/loop settings (not only node name) | in_progress | timeline template/track/key metadata now exported |
 | CR-021 | Function locals | Extract function-local variable declarations/defaults/scopes from function entry metadata | in_progress | local variable declarations now exported |
 | CR-022 | Type fidelity | Export full variable type model (container kind, key/value type, object/class path) for member vars/functions | in_progress | added category/subcategory/object-path/container flags |
-| CR-023 | Class/component overrides | Export inheritable component overrides and class-level config flags relevant to generated C++ | todo | needed for parent/child parity |
+| CR-023 | Class/component overrides | Export inheritable component overrides and class-level config flags relevant to generated C++ | in_progress | inheritable component override metadata/delta fields now emitted; expand override-depth and edge-case coverage |
 | CR-024 | Class defaults | Export class default object (CDO) property delta for converter-visible gameplay settings | in_progress | `classDefaultValues` + `classDefaultValueDelta` now emitted; filtering/scope tuning still pending |
 | CR-025 | Symbol identity | Export fully-qualified paths for parent classes, interfaces, types, and callable owners | in_progress | class/interface/type paths now exported in primary schema |
 | CR-026 | Graph coverage | Include delegate/collapsed/other relevant editable graphs beyond Ubergraph/Function/Macro | in_progress | added delegate/event coverage and construction role tagging |
@@ -232,3 +253,4 @@ For each completed task:
 - 2026-02-16: Added converter-facing `dependencyClosure` object (class/struct/enum/interface/asset/control-rig/module sets) and validated non-empty closure coverage across full export batch (`485/485`).
 - 2026-02-16: Expanded dependency closure output with generated `includeHints` and validated full-batch include-hint coverage (`485/485` non-empty).
 - 2026-02-16: Added user-defined type schema export (`userDefinedStructSchemas`, `userDefinedEnumSchemas`) and validated coverage on full export batch (`42/485` struct-schema exports, `53/485` enum-schema exports).
+- 2026-02-17: Added inheritable component override payload fields (owner/class key/template paths plus per-property parent/override deltas), expanded component extraction across Blueprint class hierarchy, and validated full-batch override coverage (`isInherited=205/818`, `hasInheritableOverride=18/818`, `override deltas=16/818`).
