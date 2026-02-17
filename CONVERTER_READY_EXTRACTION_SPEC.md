@@ -95,7 +95,7 @@ Known gaps:
 - Animation asset breadth is low in latest batch (20 AnimBPs detected, assets extracted for 1).
 - ControlRig detection is partial in latest batch (20 AnimBPs detected, control rigs extracted for 3).
 - Gameplay tags are best-effort from anim variable naming/type heuristics, not full tag flow extraction.
-- ControlRig hierarchy detail is now partially populated (`controls`, `bones`, feature/settings maps), but `controlToBoneMap` and deeper control-bone semantics remain sparse.
+- ControlRig hierarchy detail is now partially populated (`controls`, `bones`, feature/settings maps), and heuristic `controlToBoneMap` entries exist for some rigs, but broader control-bone semantics remain sparse.
 - Include/module mapping quality improved (`nativeIncludeHints`, `Default__` canonicalization), but module ownership/include fidelity still needs deeper compile-loop validation.
 - Some inheritable override edge-cases still need deeper coverage validation across larger parent-chain corpora.
 - Transition detail is partial (only some transition fields are populated; several remain defaults unless added).

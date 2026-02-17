@@ -3373,7 +3373,104 @@ void UBlueprintAnalyzer::ExtractControlRigGraph(UControlRigBlueprint* RigBluepri
 	TSet<FString> EnabledFeatures;
 	TSet<FString> ControlNameSet;
 	TSet<FString> BoneNameSet;
+	TArray<FRigElementKey> ControlKeys;
+	TMap<FString, FString> BoneLookupByNormalizedName;
 	OutRigData.ControlToBoneMap.Reset();
+
+	auto NormalizeBoneCandidate = [](FString Name) -> FString
+	{
+		Name = Name.ToLower();
+		Name.ReplaceInline(TEXT(" "), TEXT(""));
+		Name.ReplaceInline(TEXT("-"), TEXT("_"));
+		Name.ReplaceInline(TEXT("."), TEXT("_"));
+
+		while (Name.ReplaceInline(TEXT("__"), TEXT("_"), ESearchCase::CaseSensitive) > 0)
+		{
+		}
+
+		while (Name.StartsWith(TEXT("_")))
+		{
+			Name.RightChopInline(1, EAllowShrinking::No);
+		}
+		while (Name.EndsWith(TEXT("_")))
+		{
+			Name.LeftChopInline(1, EAllowShrinking::No);
+		}
+
+		return Name;
+	};
+
+	auto BuildControlBoneCandidates = [&NormalizeBoneCandidate](const FString& ControlName) -> TArray<FString>
+	{
+		TArray<FString> Candidates;
+		auto AddCandidate = [&Candidates, &NormalizeBoneCandidate](const FString& Raw)
+		{
+			const FString Normalized = NormalizeBoneCandidate(Raw);
+			if (!Normalized.IsEmpty() && !Candidates.Contains(Normalized))
+			{
+				Candidates.Add(Normalized);
+			}
+		};
+
+		FString Base = NormalizeBoneCandidate(ControlName);
+		const TArray<FString> Suffixes = {
+			TEXT("_control"),
+			TEXT("control"),
+			TEXT("_ctrl"),
+			TEXT("ctrl"),
+			TEXT("_pv"),
+			TEXT("pv")
+		};
+
+		for (const FString& Suffix : Suffixes)
+		{
+			if (Base.EndsWith(Suffix))
+			{
+				Base.LeftChopInline(Suffix.Len(), EAllowShrinking::No);
+				Base = NormalizeBoneCandidate(Base);
+				break;
+			}
+		}
+
+		AddCandidate(Base);
+
+		auto AddSidedCandidates = [&AddCandidate](const FString& NameWithoutSide, const FString& SideSuffix)
+		{
+			if (NameWithoutSide.IsEmpty())
+			{
+				return;
+			}
+
+			AddCandidate(NameWithoutSide + SideSuffix);
+			if (NameWithoutSide.Contains(TEXT("knee")))
+			{
+				AddCandidate(FString(TEXT("calf")) + SideSuffix);
+			}
+		};
+
+		if (Base.StartsWith(TEXT("left")))
+		{
+			AddSidedCandidates(Base.Mid(4), TEXT("_l"));
+		}
+		else if (Base.StartsWith(TEXT("right")))
+		{
+			AddSidedCandidates(Base.Mid(5), TEXT("_r"));
+		}
+
+		if (Base.EndsWith(TEXT("left")))
+		{
+			AddSidedCandidates(Base.LeftChop(4), TEXT("_l"));
+		}
+		else if (Base.EndsWith(TEXT("right")))
+		{
+			AddSidedCandidates(Base.LeftChop(5), TEXT("_r"));
+		}
+
+		if (Base.Contains(TEXT("pelvis"))) AddCandidate(TEXT("pelvis"));
+		if (Base.Contains(TEXT("root"))) AddCandidate(TEXT("root"));
+
+		return Candidates;
+	};
 
 	URigHierarchy* RigHierarchy = RigBlueprint->GetHierarchy();
 	if (RigHierarchy)
@@ -3392,24 +3489,58 @@ void UBlueprintAnalyzer::ExtractControlRigGraph(UControlRigBlueprint* RigBluepri
 			if (Key.Type == ERigElementType::Control)
 			{
 				ControlNameSet.Add(KeyName);
-
-				const TArray<FRigElementKey> ParentKeys = RigHierarchy->GetParents(Key, true);
-				for (const FRigElementKey& ParentKey : ParentKeys)
-				{
-					if (ParentKey.Type == ERigElementType::Bone)
-					{
-						const FString ParentBoneName = ParentKey.Name.ToString();
-						if (!ParentBoneName.IsEmpty())
-						{
-							OutRigData.ControlToBoneMap.Add(KeyName, ParentBoneName);
-						}
-						break;
-					}
-				}
+				ControlKeys.Add(Key);
 			}
 			else if (Key.Type == ERigElementType::Bone)
 			{
 				BoneNameSet.Add(KeyName);
+				const FString NormalizedBoneName = NormalizeBoneCandidate(KeyName);
+				if (!NormalizedBoneName.IsEmpty())
+				{
+					BoneLookupByNormalizedName.Add(NormalizedBoneName, KeyName);
+				}
+			}
+		}
+
+		for (const FRigElementKey& ControlKey : ControlKeys)
+		{
+			const FString ControlName = ControlKey.Name.ToString();
+			if (ControlName.IsEmpty())
+			{
+				continue;
+			}
+
+			bool bMapped = false;
+			const TArray<FRigElementKey> ParentKeys = RigHierarchy->GetParents(ControlKey, true);
+			for (const FRigElementKey& ParentKey : ParentKeys)
+			{
+				if (ParentKey.Type != ERigElementType::Bone)
+				{
+					continue;
+				}
+
+				const FString ParentBoneName = ParentKey.Name.ToString();
+				if (!ParentBoneName.IsEmpty())
+				{
+					OutRigData.ControlToBoneMap.Add(ControlName, ParentBoneName);
+					bMapped = true;
+					break;
+				}
+			}
+
+			if (bMapped)
+			{
+				continue;
+			}
+
+			const TArray<FString> BoneCandidates = BuildControlBoneCandidates(ControlName);
+			for (const FString& Candidate : BoneCandidates)
+			{
+				if (const FString* BoneName = BoneLookupByNormalizedName.Find(Candidate))
+				{
+					OutRigData.ControlToBoneMap.Add(ControlName, *BoneName);
+					break;
+				}
 			}
 		}
 	}

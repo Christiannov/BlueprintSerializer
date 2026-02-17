@@ -223,6 +223,23 @@ Batch sampled:
   - `blueprintFileCount=485` with `rawBlueprintFileCount=970` and `duplicateBlueprintExportsIgnored=485`
   - `exportsWithControlRigs=3`, `controlRigsWithControls=1`, `controlRigsWithBones=3`, `controlRigsWithControlToBoneMap=0`
 
+## ControlRig control-bone mapping follow-up batch (2026-02-17)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_All_20260217_5/*.json`
+- Manifest: `Saved/BlueprintExports/BP_SLZR_All_20260217_5/BP_SLZR_Manifest_20260217_151848.json`
+- Validation report: `Saved/BlueprintExports/BP_SLZR_All_20260217_5/BP_SLZR_ValidationReport_20260217_161849.json`
+
+- Full export command succeeds: `BP_SLZR.ExportAllBlueprints Saved/BlueprintExports/BP_SLZR_All_20260217_5` -> `Success: 485, Failed: 0`.
+- ControlRig map follow-up:
+  - added hierarchy/name-heuristic control-bone mapping fallback (`Left/Right*KneePV*` -> `calf_l/calf_r`, `PelvisCtrl` -> `pelvis`, `RootCtrl` -> `root` in sample)
+  - sample evidence: `BP_SLZR_Blueprint_ABP_Mannequin_Base_da729c0c_20260217_151847.json` now emits non-empty `controlToBoneMap` with `mappedControlCount=4`
+- Validation metrics on this batch:
+  - `overallPass=true`
+  - `rawBlueprintFileCount=485`, `duplicateBlueprintExportsIgnored=0`
+  - `exportsWithControlRigs=3`, `controlRigsWithControls=1`, `controlRigsWithBones=3`, `controlRigsWithControlToBoneMap=1`
+
 ## C++ complete conversion focus (primary)
 
 This section defines the must-have subset for "things usually done in C++".
@@ -250,7 +267,7 @@ Notes:
 | CR-002 | Anim vars | Resolve AnimBP variable defaults robustly | in_progress | `116/117` populated; finish edge cases |
 | CR-003 | Anim assets | Increase animation asset discovery coverage from graph/rule/layer/property paths | in_progress | current `1/20` AnimBPs with assets |
 | CR-004 | ControlRig linkage | Discover and extract referenced ControlRigs from AnimBP nodes/properties | in_progress | current `3/20` AnimBPs with rigs |
-| CR-005 | ControlRig detail model | Populate `controls`, `bones`, `controlToBoneMap`, feature fields | in_progress | hierarchy-driven `controls`/`bones`/feature maps now populated; `controlToBoneMap` remains sparse and needs deeper mapping logic |
+| CR-005 | ControlRig detail model | Populate `controls`, `bones`, `controlToBoneMap`, feature fields | in_progress | hierarchy-driven `controls`/`bones`/feature maps populated; heuristic control-bone mapping now emits non-empty maps for a subset of rigs, but broader semantic mapping remains pending |
 | CR-006 | Gameplay tags | Replace name/type heuristics with richer tag flow extraction | todo | currently best-effort only |
 | CR-007 | Function signatures | Populate explicit return type + richer typed parameter metadata | in_progress | return/object-path metadata now exported; needs wider corpus validation |
 | CR-008 | Networking semantics | Export RPC kind/reliability/validation + RepNotify linkage | in_progress | network flags + RepNotify now exported; validation expansion pending |
@@ -322,3 +339,4 @@ For each completed task:
 - 2026-02-17: Improved dependency closure include quality by canonicalizing `Default__` script-object class paths and emitting metadata-backed `nativeIncludeHints`; validated on `BP_SLZR_All_20260217_3` (`nativeIncludeHintsNonEmpty=485/485`, `exportsWithDefaultObjectClassPaths=0`, `exportsWithDefaultObjectIncludeHints=0`, `overallPass=true`, report `BP_SLZR_ValidationReport_20260217_122155.json`).
 - 2026-02-17: Populated ControlRig hierarchy-derived fields (`controls`, `bones`, feature maps, rig properties) and validated improved ControlRig payload coverage on `BP_SLZR_All_20260217_4` (`exportsWithControlRigs=3`, `controlRigsWithControls=1`, `controlRigsWithBones=3`).
 - 2026-02-17: Hardened `BP_SLZR.ValidateConverterReady` to de-duplicate repeated exports in reused batch directories via `blueprintPath` + latest `extractionTimestamp`; validated manifest-gate recovery on duplicated directory (`raw=970`, deduped `485`, `overallPass=true`; report `BP_SLZR_ValidationReport_20260217_145401.json`).
+- 2026-02-17: Added control-to-bone heuristic fallback mapping in ControlRig extraction and validated non-empty map coverage uplift on fresh batch `BP_SLZR_All_20260217_5` (`controlRigsWithControlToBoneMap=1/3`, sample `mappedControlCount=4` on `ABP_Mannequin_Base`).
