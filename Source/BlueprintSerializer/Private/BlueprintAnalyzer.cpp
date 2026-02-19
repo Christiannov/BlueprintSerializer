@@ -89,6 +89,7 @@
 #include "K2Node_Literal.h"
 #include "K2Node_CallDelegate.h"
 #include "K2Node_BaseMCDelegate.h"
+#include "K2Node_CreateDelegate.h"
 #include "K2Node_CallArrayFunction.h"
 #include "K2Node_Select.h"
 #include "K2Node_Switch.h"
@@ -931,6 +932,8 @@ namespace
         TSet<FString> MacroGraphs;
         TSet<FString> MacroBlueprints;
         TSet<FString> Modules;
+        // CR-036: macro graph path -> list of call-site node GUIDs
+        TMap<FString, TArray<FString>> MacroGraphCallSites;
     };
 
     TArray<FString> ToSortedArray(const TSet<FString>& Values)
@@ -1454,6 +1457,11 @@ namespace
                         if (!MacroGraphPath->IsEmpty())
                         {
                             Closure.MacroGraphs.Add(*MacroGraphPath);
+                            // CR-036: record call-site node GUID for this macro graph
+                            if (Node.NodeGuid.IsValid())
+                            {
+                                Closure.MacroGraphCallSites.FindOrAdd(*MacroGraphPath).Add(Node.NodeGuid.ToString());
+                            }
                         }
                     }
 
@@ -1508,6 +1516,10 @@ namespace
                         NodeJson->TryGetStringField(TEXT("type"), NodeType);
                     }
 
+                    // CR-036: capture node GUID for macro call-site mapping
+                    FString NodeGuid;
+                    NodeJson->TryGetStringField(TEXT("nodeGuid"), NodeGuid);
+
                     FString MemberParent;
                     if (NodeJson->TryGetStringField(TEXT("memberParent"), MemberParent))
                     {
@@ -1530,6 +1542,11 @@ namespace
                             {
                                 AddDependencyPath(MacroGraphPath, Closure);
                                 Closure.MacroGraphs.Add(MacroGraphPath);
+                                // CR-036: record call-site node GUID for this macro graph
+                                if (!NodeGuid.IsEmpty())
+                                {
+                                    Closure.MacroGraphCallSites.FindOrAdd(MacroGraphPath).Add(NodeGuid);
+                                }
                             }
 
                             FString MacroBlueprintPath;
@@ -1607,6 +1624,21 @@ namespace
         ClosureJson->SetArrayField(TEXT("controlRigPaths"), BuildStringArray(ToSortedArray(Closure.ControlRigs)));
         ClosureJson->SetArrayField(TEXT("macroGraphPaths"), BuildStringArray(ToSortedArray(Closure.MacroGraphs)));
         ClosureJson->SetArrayField(TEXT("macroBlueprintPaths"), BuildStringArray(ToSortedArray(Closure.MacroBlueprints)));
+
+        // CR-036: macro call-site map (macro path -> array of call-site node GUIDs)
+        if (Closure.MacroGraphCallSites.Num() > 0)
+        {
+            TSharedPtr<FJsonObject> CallSiteMap = MakeShareable(new FJsonObject);
+            TArray<FString> CallSiteKeys;
+            Closure.MacroGraphCallSites.GetKeys(CallSiteKeys);
+            CallSiteKeys.Sort();
+            for (const FString& Key : CallSiteKeys)
+            {
+                const TArray<FString>& NodeIds = Closure.MacroGraphCallSites[Key];
+                CallSiteMap->SetArrayField(Key, BuildStringArray(NodeIds));
+            }
+            ClosureJson->SetObjectField(TEXT("macroCallSiteMap"), CallSiteMap);
+        }
         ClosureJson->SetArrayField(TEXT("moduleNames"), BuildStringArray(ToSortedArray(Closure.Modules)));
 
         TSet<FString> IncludeHints;
@@ -1732,6 +1764,32 @@ FBS_BlueprintData UBlueprintAnalyzer::AnalyzeBlueprint(UBlueprint* Blueprint)
 		Data.UnsupportedNodeTypes.Sort();
 		Data.PartiallySupportedNodeTypes = PartiallySupportedTypes.Array();
 		Data.PartiallySupportedNodeTypes.Sort();
+	}
+
+	// CR-035: node-to-bytecode trace linkage (second pass, after UnsupportedNodeTypes is known)
+	if (!Data.UnsupportedNodeTypes.IsEmpty() || !Data.PartiallySupportedNodeTypes.IsEmpty())
+	{
+		TSet<FString> UnsupportedSet(Data.UnsupportedNodeTypes);
+		TSet<FString> PartiallySupportedSet(Data.PartiallySupportedNodeTypes);
+		for (FBS_FunctionInfo& FuncInfo : Data.DetailedFunctions)
+		{
+			if (FuncInfo.BytecodeSize <= 0) { continue; }
+			for (UEdGraph* FGraph : Blueprint->FunctionGraphs)
+			{
+				if (!FGraph || FGraph->GetFName().ToString() != FuncInfo.FunctionName) { continue; }
+				for (UEdGraphNode* GNode : FGraph->Nodes)
+				{
+					if (!GNode) { continue; }
+					const FString GNodeType = GNode->GetClass()->GetName();
+					if (UnsupportedSet.Contains(GNodeType) || PartiallySupportedSet.Contains(GNodeType))
+					{
+						FuncInfo.BytecodeNodeGuids.Add(GNode->NodeGuid.ToString());
+						FuncInfo.BytecodeNodeTypes.Add(GNodeType);
+					}
+				}
+				break;
+			}
+		}
 	}
 
 	// Gameplay-tag flow extraction from structured graph payloads (not just anim-variable heuristics).
@@ -4351,6 +4409,14 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
                         Out.MemberParent = OwnerName;
                         AddMeta(TEXT("meta.memberParentFallback"), TEXT("funcOwner"));
                     }
+                    // CR-014 (Task 14): interface dispatch enrichment
+                    if (Owner->HasAnyClassFlags(CLASS_Interface))
+                    {
+                        AddMetaBool(TEXT("meta.isInterfaceCall"), true);
+                        AddMeta(TEXT("meta.interfaceClassPath"), Owner->GetPathName());
+                        AddMeta(TEXT("meta.interfaceFunctionPath"),
+                            FString::Printf(TEXT("%s::%s"), *Owner->GetPathName(), *TargetFunction->GetName()));
+                    }
                 }
                 AddMetaBool(TEXT("meta.isPure"), TargetFunction->HasAllFunctionFlags(FUNC_BlueprintPure));
                 AddMetaBool(TEXT("meta.isConst"), TargetFunction->HasAllFunctionFlags(FUNC_Const));
@@ -4499,6 +4565,56 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
                 AddMeta(TEXT("meta.delegateOwner"), Owner->GetPathName());
             }
             AddMetaBool(TEXT("meta.isDelegateCall"), true);
+            // Task 13: emit delegate signature parameters for complete dispatch reconstruction
+            if (UFunction* SigFunc = CallDel->GetDelegateSignature())
+            {
+                TArray<FString> SigParams;
+                for (TFieldIterator<FProperty> PropIt(SigFunc); PropIt; ++PropIt)
+                {
+                    const FProperty* Prop = *PropIt;
+                    if (Prop && Prop->HasAnyPropertyFlags(CPF_Parm) && !Prop->HasAnyPropertyFlags(CPF_ReturnParm))
+                    {
+                        SigParams.Add(FString::Printf(TEXT("%s: %s"), *Prop->GetName(), *DescribePropertyType(Prop)));
+                    }
+                }
+                if (SigParams.Num() > 0)
+                {
+                    AddMeta(TEXT("meta.delegateSignatureParams"), FString::Join(SigParams, TEXT(";")));
+                    AddMeta(TEXT("meta.delegateSignatureParamCount"), FString::FromInt(SigParams.Num()));
+                }
+            }
+        }
+
+        // --- CreateDelegate: bind a named function to a delegate variable ---
+        if (UK2Node_CreateDelegate* CreateDel = Cast<UK2Node_CreateDelegate>(K2))
+        {
+            AddMetaBool(TEXT("meta.isCreateDelegate"), true);
+            if (!CreateDel->SelectedFunctionName.IsNone())
+            {
+                AddMeta(TEXT("meta.selectedFunctionName"), CreateDel->SelectedFunctionName.ToString());
+            }
+            if (UFunction* SigFunc = CreateDel->GetDelegateSignature())
+            {
+                if (UClass* SigOwner = SigFunc->GetOwnerClass())
+                {
+                    AddMeta(TEXT("meta.delegateSignaturePath"),
+                        FString::Printf(TEXT("%s::%s"), *SigOwner->GetPathName(), *SigFunc->GetName()));
+                }
+                TArray<FString> SigParams;
+                for (TFieldIterator<FProperty> PropIt(SigFunc); PropIt; ++PropIt)
+                {
+                    const FProperty* Prop = *PropIt;
+                    if (Prop && Prop->HasAnyPropertyFlags(CPF_Parm) && !Prop->HasAnyPropertyFlags(CPF_ReturnParm))
+                    {
+                        SigParams.Add(FString::Printf(TEXT("%s: %s"), *Prop->GetName(), *DescribePropertyType(Prop)));
+                    }
+                }
+                if (SigParams.Num() > 0)
+                {
+                    AddMeta(TEXT("meta.delegateSignatureParams"), FString::Join(SigParams, TEXT(";")));
+                    AddMeta(TEXT("meta.delegateSignatureParamCount"), FString::FromInt(SigParams.Num()));
+                }
+            }
         }
 
         // --- Array function: distinguish array target operations from regular calls ---
@@ -4626,6 +4742,23 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
             {
                 AddMeta(TEXT("meta.structTypePath"), MakeStruct->StructType->GetPathName());
                 AddMeta(TEXT("meta.structTypeName"), MakeStruct->StructType->GetName());
+                // Task 12: field -> input-pin mapping for complete struct construction reconstruction
+                TArray<FString> FieldPinMap;
+                for (TFieldIterator<FProperty> PropIt(MakeStruct->StructType); PropIt; ++PropIt)
+                {
+                    const FProperty* Prop = *PropIt;
+                    if (!Prop) { continue; }
+                    const FName FieldFName = Prop->GetFName();
+                    UEdGraphPin* FoundPin = Node->FindPin(FieldFName, EGPD_Input);
+                    const FString PinId = FoundPin ? FoundPin->PinId.ToString() : FString();
+                    FieldPinMap.Add(FString::Printf(TEXT("%s|%s|%s"),
+                        *FieldFName.ToString(), *Prop->GetCPPType(), *PinId));
+                }
+                if (FieldPinMap.Num() > 0)
+                {
+                    AddMeta(TEXT("meta.structFieldPinMap"), FString::Join(FieldPinMap, TEXT(";")));
+                    AddMeta(TEXT("meta.structFieldCount"), FString::FromInt(FieldPinMap.Num()));
+                }
             }
         }
 
@@ -4636,6 +4769,23 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
             {
                 AddMeta(TEXT("meta.structTypePath"), BreakStruct->StructType->GetPathName());
                 AddMeta(TEXT("meta.structTypeName"), BreakStruct->StructType->GetName());
+                // Task 12: field -> output-pin mapping for complete struct deconstruction reconstruction
+                TArray<FString> FieldPinMap;
+                for (TFieldIterator<FProperty> PropIt(BreakStruct->StructType); PropIt; ++PropIt)
+                {
+                    const FProperty* Prop = *PropIt;
+                    if (!Prop) { continue; }
+                    const FName FieldFName = Prop->GetFName();
+                    UEdGraphPin* FoundPin = Node->FindPin(FieldFName, EGPD_Output);
+                    const FString PinId = FoundPin ? FoundPin->PinId.ToString() : FString();
+                    FieldPinMap.Add(FString::Printf(TEXT("%s|%s|%s"),
+                        *FieldFName.ToString(), *Prop->GetCPPType(), *PinId));
+                }
+                if (FieldPinMap.Num() > 0)
+                {
+                    AddMeta(TEXT("meta.structFieldPinMap"), FString::Join(FieldPinMap, TEXT(";")));
+                    AddMeta(TEXT("meta.structFieldCount"), FString::FromInt(FieldPinMap.Num()));
+                }
             }
         }
 
@@ -5230,6 +5380,19 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 		BytecodeObj->SetStringField(TEXT("bytecodeHash"), FuncInfo.BytecodeHash);
 		BytecodeObj->SetBoolField(TEXT("isOverride"), FuncInfo.bIsOverride);
 		BytecodeObj->SetBoolField(TEXT("callsParent"), FuncInfo.bCallsParent);
+		// CR-035: emit node traces for unsupported/partially-supported nodes in this bytecode function
+		if (FuncInfo.BytecodeNodeGuids.Num() > 0)
+		{
+			TArray<TSharedPtr<FJsonValue>> NodeTraceArray;
+			for (int32 TraceIdx = 0; TraceIdx < FuncInfo.BytecodeNodeGuids.Num(); TraceIdx++)
+			{
+				TSharedPtr<FJsonObject> TraceObj = MakeShareable(new FJsonObject);
+				TraceObj->SetStringField(TEXT("nodeGuid"), FuncInfo.BytecodeNodeGuids[TraceIdx]);
+				TraceObj->SetStringField(TEXT("nodeType"), FuncInfo.BytecodeNodeTypes[TraceIdx]);
+				NodeTraceArray.Add(MakeShareable(new FJsonValueObject(TraceObj)));
+			}
+			BytecodeObj->SetArrayField(TEXT("nodeTraces"), NodeTraceArray);
+		}
 		BytecodeBackedFunctionArray.Add(MakeShareable(new FJsonValueObject(BytecodeObj)));
 		BytecodeBackedFunctionCount++;
 	}

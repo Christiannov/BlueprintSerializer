@@ -303,6 +303,31 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `pass` — structured function parameter types add zero regression risk; `FBS_ParamInfo` payload provides full C++-codegen-ready type information for all function signatures.
 - Follow-up: CR-035 deeper node-to-bytecode trace linkage; CR-036 converter-side macro closure consumption wiring.
 
+### 2026-02-19 17:25 - CR-035/CR-036/Task-12/Task-13/Task-14: five fidelity CRs in one pass
+
+- Scope: implement five concurrent serializer enrichments for complete C++ conversion coverage.
+- Changes:
+  - **CR-035 (node-to-bytecode trace linkage)**: `BlueprintAnalyzer.h` — added `TArray<FString> BytecodeNodeGuids` and `TArray<FString> BytecodeNodeTypes` to `FBS_FunctionInfo`. `BlueprintAnalyzer.cpp` — second pass in `AnalyzeBlueprint` (after `UnsupportedNodeTypes` is populated) iterates `DetailedFunctions` with `BytecodeSize > 0`, finds matching `FunctionGraphs` entry by name, collects node GUIDs/types for nodes matching unsupported or partially-supported sets; JSON serializer emits `nodeTraces` array (objects with `nodeGuid`/`nodeType`) into each `bytecodeBackedFunctions` entry.
+  - **CR-036 (macro closure call-site mapping)**: `FBS_DependencyClosureData` (anonymous namespace) — added `TMap<FString, TArray<FString>> MacroGraphCallSites`; `BuildDependencyClosure` structured path records call-site `NodeGuid.ToString()` via `FindOrAdd`; JSON fallback path reads `nodeGuid` field then records same; `BuildDependencyClosureJson` emits sorted `macroCallSiteMap` JSON object (macro path → array of node GUIDs).
+  - **Task 12 (MakeStruct/BreakStruct field-pin mapping)**: MakeStruct handler — `TFieldIterator<FProperty>` over `StructType`, finds input pin by `FName`, emits `meta.structFieldPinMap` (semicolon-separated `fieldName|cppType|pinId` triples) and `meta.structFieldCount`; BreakStruct handler — same pattern with `EGPD_Output`.
+  - **Task 13 (delegate completeness)**: CallDelegate handler extended — calls `GetDelegateSignature()`, iterates `TFieldIterator<FProperty>` for non-return params, emits `meta.delegateSignatureParams` (semicolon-separated) and `meta.delegateSignatureParamCount`; new CreateDelegate handler (`UK2Node_CreateDelegate`) — emits `meta.isCreateDelegate`, `meta.selectedFunctionName`, `meta.delegateSignaturePath`, and same signature params; added `#include "K2Node_CreateDelegate.h"` after `K2Node_BaseMCDelegate.h`.
+  - **Task 14 (interface function dispatch enrichment)**: inside `TargetFunction->GetOwnerClass()` block in CallFunction handler — added `HasAnyClassFlags(CLASS_Interface)` check emitting `meta.isInterfaceCall`, `meta.interfaceClassPath`, `meta.interfaceFunctionPath`.
+  - Build: 4 incremental actions (compile `Module.BlueprintSerializer.3.cpp`, link `.lib`, link `.dll`, write metadata), ~36 s.
+    - First attempt failed: `Data` not in scope in `ExtractDetailedFunctions` (function signature takes only `UBlueprint*`); resolved by moving CR-035 collection to a second pass in `AnalyzeBlueprint` after `UnsupportedNodeTypes` is populated.
+- Command:
+  - `powershell -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_172451/`
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260219_172534.json`
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_172451/BP_SLZR_ValidationReport_20260219_172534.json`
+  - `Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260219_172534.json`
+- Key metrics:
+  - `suitePass=true`, all gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`
+  - All five CR changes are additive metadata/JSON fields; no existing gate affected.
+- Result: `pass` — CR-035, CR-036, Task 12, Task 13, Task 14 compile cleanly and regress at zero risk.
+- Follow-up: commit; evaluate next conversion-fidelity priorities.
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.

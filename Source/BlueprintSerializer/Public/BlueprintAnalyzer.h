@@ -320,6 +320,13 @@ struct BLUEPRINTSERIALIZER_API FBS_FunctionInfo
 
     UPROPERTY()
     TArray<FBS_ParamInfo> DetailedOutputParams;
+
+    // CR-035: GUIDs and types of unsupported/partially-supported nodes in bytecode-backed functions
+    UPROPERTY()
+    TArray<FString> BytecodeNodeGuids;
+
+    UPROPERTY()
+    TArray<FString> BytecodeNodeTypes;
 };
 
 USTRUCT(BlueprintType)
