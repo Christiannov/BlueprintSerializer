@@ -157,6 +157,29 @@ struct BLUEPRINTSERIALIZER_API FBS_ComponentInfo
 };
 
 /**
+ * Structured local variable declaration for function-scoped variables.
+ * Provides full type resolution needed for C++ code generation.
+ */
+USTRUCT(BlueprintType)
+struct BLUEPRINTSERIALIZER_API FBS_LocalVarInfo
+{
+    GENERATED_BODY()
+
+    UPROPERTY() FString VarName;
+    UPROPERTY() FString TypeCategory;      // PinCategory (bool, int, float, object, struct, …)
+    UPROPERTY() FString TypeSubCategory;   // PinSubCategory
+    UPROPERTY() FString TypeObjectPath;    // PinSubCategoryObject path (class/struct/enum)
+    UPROPERTY() FString TypeObjectName;    // PinSubCategoryObject short name
+    UPROPERTY() FString ContainerType;     // "None", "Array", "Set", "Map"
+    UPROPERTY() FString MapValueCategory;
+    UPROPERTY() FString MapValueObjectPath;
+    UPROPERTY() bool bIsReference = false;
+    UPROPERTY() bool bIsConst = false;
+    UPROPERTY() FString DefaultValue;
+    UPROPERTY() FString Description;       // Backward-compat string form (same as LocalVariables entry)
+};
+
+/**
  * Structure for detailed function information
  * Captures function signatures, parameters, and metadata
  */
@@ -262,6 +285,10 @@ struct BLUEPRINTSERIALIZER_API FBS_FunctionInfo
 
 	UPROPERTY()
 	TArray<FString> DeclarationSpecifiers;
+
+    // Structured local variable declarations (typed, for C++ code generation)
+    UPROPERTY()
+    TArray<FBS_LocalVarInfo> DetailedLocalVariables;
 };
 
 USTRUCT(BlueprintType)

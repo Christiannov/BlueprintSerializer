@@ -236,6 +236,24 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `pass` — Tier-1 graph fidelity changes compile and regress cleanly.
 - Follow-up: continue Tier-2 (local variable structured types, struct MakeStruct/BreakStruct field-pin mapping, MemberParent fallback); then CR-035/CR-036.
 
+### 2026-02-19 13:24 - Tier-2 structured local variable types (FBS_LocalVarInfo + detailedLocalVariables)
+
+- Scope: add `FBS_LocalVarInfo` struct for fully-typed local variable declarations; populate in `ExtractDetailedFunctions`; serialize as `detailedLocalVariables` JSON array alongside existing `localVariables` string array.
+- Changes:
+  - `BlueprintAnalyzer.h`: new `FBS_LocalVarInfo` USTRUCT (VarName, TypeCategory, TypeSubCategory, TypeObjectPath, TypeObjectName, ContainerType, MapValueCategory, MapValueObjectPath, bIsReference, bIsConst, DefaultValue, Description); added `TArray<FBS_LocalVarInfo> DetailedLocalVariables` to `FBS_FunctionInfo`.
+  - `BlueprintAnalyzer.cpp`: population of `FBS_LocalVarInfo` per local var in `ExtractDetailedFunctions` (all container types, map value type, reference/const flags, default value); JSON serializer emits `detailedLocalVariables` array with conditional field emission (empty fields omitted).
+  - Build: 6 incremental actions (UHT generated 4 reflection files), 37 s.
+- Command:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_132402/BP_SLZR_ValidationReport_20260219_132411.json`
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260219_132411.json`
+- Key metrics:
+  - `suitePass=true`, `overallPass=true`, all 14 gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`
+- Result: `pass` — structured local variable types add zero regression risk; `detailedLocalVariables` is additive-only.
+- Follow-up: Task 5 (MemberParent triple-fallback), Task 6 (FBS_ParamInfo structured function parameters).
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.

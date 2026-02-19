@@ -1,4 +1,4 @@
-#include "BlueprintAnalyzer.h"
+﻿#include "BlueprintAnalyzer.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Engine/InheritableComponentHandler.h"
@@ -5295,7 +5295,36 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 			LocalVarArray.Add(MakeShareable(new FJsonValueString(LocalVar)));
 		}
 		FuncObj->SetArrayField(TEXT("localVariables"), LocalVarArray);
-		
+
+		// Structured typed local variables for C++ code generation
+		TArray<TSharedPtr<FJsonValue>> DetailedLocalVarArray;
+		for (const FBS_LocalVarInfo& LVI : FuncInfo.DetailedLocalVariables)
+		{
+			TSharedPtr<FJsonObject> LVObj = MakeShareable(new FJsonObject);
+			LVObj->SetStringField(TEXT("varName"),          LVI.VarName);
+			LVObj->SetStringField(TEXT("typeCategory"),     LVI.TypeCategory);
+			if (!LVI.TypeSubCategory.IsEmpty())
+				LVObj->SetStringField(TEXT("typeSubCategory"), LVI.TypeSubCategory);
+			if (!LVI.TypeObjectPath.IsEmpty())
+				LVObj->SetStringField(TEXT("typeObjectPath"),  LVI.TypeObjectPath);
+			if (!LVI.TypeObjectName.IsEmpty())
+				LVObj->SetStringField(TEXT("typeObjectName"),  LVI.TypeObjectName);
+			LVObj->SetStringField(TEXT("containerType"),    LVI.ContainerType);
+			if (!LVI.MapValueCategory.IsEmpty())
+				LVObj->SetStringField(TEXT("mapValueCategory"),   LVI.MapValueCategory);
+			if (!LVI.MapValueObjectPath.IsEmpty())
+				LVObj->SetStringField(TEXT("mapValueObjectPath"), LVI.MapValueObjectPath);
+			LVObj->SetBoolField(TEXT("isReference"), LVI.bIsReference);
+			LVObj->SetBoolField(TEXT("isConst"),     LVI.bIsConst);
+			if (!LVI.DefaultValue.IsEmpty())
+				LVObj->SetStringField(TEXT("defaultValue"), LVI.DefaultValue);
+			if (!LVI.Description.IsEmpty())
+				LVObj->SetStringField(TEXT("description"), LVI.Description);
+			DetailedLocalVarArray.Add(MakeShareable(new FJsonValueObject(LVObj)));
+		}
+		if (DetailedLocalVarArray.Num() > 0)
+			FuncObj->SetArrayField(TEXT("detailedLocalVariables"), DetailedLocalVarArray);
+
 		DetailedFuncArray.Add(MakeShareable(new FJsonValueObject(FuncObj)));
 	}
 	JsonObject->SetArrayField(TEXT("detailedFunctions"), DetailedFuncArray);
@@ -7475,6 +7504,36 @@ TArray<FBS_FunctionInfo> UBlueprintAnalyzer::ExtractDetailedFunctions(UBlueprint
 					LocalDesc += FString::Printf(TEXT(" = %s"), *LocalVar.DefaultValue);
 				}
 				FuncInfo.LocalVariables.Add(LocalDesc);
+
+				// Structured typed form for C++ conversion
+				FBS_LocalVarInfo LVI;
+				LVI.VarName = LocalVar.VarName.ToString();
+				LVI.TypeCategory = LocalVar.VarType.PinCategory.ToString();
+				LVI.TypeSubCategory = LocalVar.VarType.PinSubCategory.ToString();
+				if (LocalVar.VarType.PinSubCategoryObject.IsValid())
+				{
+					LVI.TypeObjectPath = LocalVar.VarType.PinSubCategoryObject->GetPathName();
+					LVI.TypeObjectName = LocalVar.VarType.PinSubCategoryObject->GetName();
+				}
+				switch (LocalVar.VarType.ContainerType)
+				{
+				case EPinContainerType::Array: LVI.ContainerType = TEXT("Array"); break;
+				case EPinContainerType::Set:   LVI.ContainerType = TEXT("Set"); break;
+				case EPinContainerType::Map:
+					LVI.ContainerType = TEXT("Map");
+					LVI.MapValueCategory = LocalVar.VarType.PinValueType.TerminalCategory.ToString();
+					if (LocalVar.VarType.PinValueType.TerminalSubCategoryObject.IsValid())
+					{
+						LVI.MapValueObjectPath = LocalVar.VarType.PinValueType.TerminalSubCategoryObject->GetPathName();
+					}
+					break;
+				default: LVI.ContainerType = TEXT("None"); break;
+				}
+				LVI.bIsReference = LocalVar.VarType.bIsReference;
+				LVI.bIsConst = LocalVar.VarType.bIsConst;
+				LVI.DefaultValue = LocalVar.DefaultValue;
+				LVI.Description = LocalDesc;
+				FuncInfo.DetailedLocalVariables.Add(LVI);
 			}
 			FuncInfo.LocalVariables.Sort();
 		}
