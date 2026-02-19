@@ -4313,6 +4313,27 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
                 ParentName.RemoveFromStart(TEXT("SKEL_"));
                 ParentName.RemoveFromEnd(TEXT("_C"));
                 Out.MemberParent = ParentName;
+                AddMeta(TEXT("meta.memberParentPath"), Parent->GetPathName());
+            }
+
+            // 2. Self-context resolution: resolve via owning Blueprint skeleton class
+            if (Out.MemberParent.IsEmpty())
+            {
+                if (UBlueprint* OwnerBP = Cast<UBlueprint>(Node->GetGraph()->GetTypedOuter<UBlueprint>()))
+                {
+                    if (UClass* SkelClass = OwnerBP->SkeletonGeneratedClass)
+                    {
+                        if (UClass* ScopedParent = Call->FunctionReference.GetMemberParentClass(SkelClass))
+                        {
+                            FString ParentName = ScopedParent->GetName();
+                            ParentName.RemoveFromStart(TEXT("SKEL_"));
+                            ParentName.RemoveFromEnd(TEXT("_C"));
+                            Out.MemberParent = ParentName;
+                            AddMeta(TEXT("meta.memberParentPath"), ScopedParent->GetPathName());
+                            AddMeta(TEXT("meta.memberParentFallback"), TEXT("skelScope"));
+                        }
+                    }
+                }
             }
 
             if (UFunction* TargetFunction = Call->GetTargetFunction())
@@ -4321,6 +4342,15 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
                 if (UClass* Owner = TargetFunction->GetOwnerClass())
                 {
                     AddMeta(TEXT("meta.functionOwner"), Owner->GetPathName());
+                    // 3. Derive MemberParent from compiled function owner when still unresolved
+                    if (Out.MemberParent.IsEmpty())
+                    {
+                        FString OwnerName = Owner->GetName();
+                        OwnerName.RemoveFromStart(TEXT("SKEL_"));
+                        OwnerName.RemoveFromEnd(TEXT("_C"));
+                        Out.MemberParent = OwnerName;
+                        AddMeta(TEXT("meta.memberParentFallback"), TEXT("funcOwner"));
+                    }
                 }
                 AddMetaBool(TEXT("meta.isPure"), TargetFunction->HasAllFunctionFlags(FUNC_BlueprintPure));
                 AddMetaBool(TEXT("meta.isConst"), TargetFunction->HasAllFunctionFlags(FUNC_Const));

@@ -254,6 +254,26 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `pass` — structured local variable types add zero regression risk; `detailedLocalVariables` is additive-only.
 - Follow-up: Task 5 (MemberParent triple-fallback), Task 6 (FBS_ParamInfo structured function parameters).
 
+### 2026-02-19 13:31 - Tier-2 MemberParent triple-fallback for CallFunction resolution
+
+- Scope: resolve `Out.MemberParent` for cases where `GetMemberParentClass()` returns null — including self-context Blueprint functions and functions resolved only at compile time.
+- Changes:
+  - `BlueprintAnalyzer.cpp` `AnalyzeNodeToStruct` CallFunction handler:
+    1. **Primary** (existing): `GetMemberParentClass()` → cleaned class name + emit `meta.memberParentPath`.
+    2. **Fallback 2** (new): self-context resolution — `GetMemberParentClass(OwnerBP->SkeletonGeneratedClass)` when primary returns null; emits `meta.memberParentFallback=skelScope`.
+    3. **Fallback 3** (new): derive from compiled function owner — `GetTargetFunction()->GetOwnerClass()` when still unresolved; emits `meta.memberParentFallback=funcOwner`.
+  - Build: 4 incremental actions (compile Module.BlueprintSerializer.3, link, dll, metadata), 35 s.
+- Command:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_133154/BP_SLZR_ValidationReport_20260219_133203.json`
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260219_133203.json`
+- Key metrics:
+  - `suitePass=true`, `overallPass=true`, all 14 gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`
+- Result: `pass` — additive metadata fields carry zero regression risk.
+- Follow-up: Task 6 (FBS_ParamInfo structured function parameters with full type resolution).
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.
