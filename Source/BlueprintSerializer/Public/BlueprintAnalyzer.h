@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/Blueprint.h"
@@ -157,6 +157,30 @@ struct BLUEPRINTSERIALIZER_API FBS_ComponentInfo
 };
 
 /**
+ * Structured function parameter for fully-typed function signatures.
+ * Populated from both FProperty iterators (compiled functions) and
+ * graph entry node pins (Blueprint-only functions).
+ */
+USTRUCT(BlueprintType)
+struct BLUEPRINTSERIALIZER_API FBS_ParamInfo
+{
+    GENERATED_BODY()
+
+    UPROPERTY() FString ParamName;
+    UPROPERTY() FString TypeCategory;      // "bool", "int", "float", "real", "object", "struct", etc.
+    UPROPERTY() FString TypeSubCategory;   // PinSubCategory (pin-source only)
+    UPROPERTY() FString TypeObjectPath;    // Full asset path (class/struct/enum)
+    UPROPERTY() FString TypeObjectName;    // Short name of TypeObject
+    UPROPERTY() FString ContainerType;     // "None", "Array", "Set", "Map"
+    UPROPERTY() FString MapValueCategory;
+    UPROPERTY() FString MapValueObjectPath;
+    UPROPERTY() bool bIsReference = false; // CPF_ReferenceParm / PinType.bIsReference
+    UPROPERTY() bool bIsConst = false;     // CPF_ConstParm / PinType.bIsConst
+    UPROPERTY() bool bIsOut = false;       // CPF_OutParm / output pin direction
+    UPROPERTY() FString DefaultValue;
+    UPROPERTY() FString Description;       // Backward-compat string form
+};
+/**
  * Structured local variable declaration for function-scoped variables.
  * Provides full type resolution needed for C++ code generation.
  */
@@ -289,6 +313,13 @@ struct BLUEPRINTSERIALIZER_API FBS_FunctionInfo
     // Structured local variable declarations (typed, for C++ code generation)
     UPROPERTY()
     TArray<FBS_LocalVarInfo> DetailedLocalVariables;
+
+    // Structured parameter declarations (typed, for C++ code generation)
+    UPROPERTY()
+    TArray<FBS_ParamInfo> DetailedInputParams;
+
+    UPROPERTY()
+    TArray<FBS_ParamInfo> DetailedOutputParams;
 };
 
 USTRUCT(BlueprintType)

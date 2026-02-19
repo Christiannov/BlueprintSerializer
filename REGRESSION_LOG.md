@@ -274,6 +274,35 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `pass` — additive metadata fields carry zero regression risk.
 - Follow-up: Task 6 (FBS_ParamInfo structured function parameters with full type resolution).
 
+### 2026-02-19 14:07 - Task 6: FBS_ParamInfo structured function parameters
+
+- Scope: add `FBS_ParamInfo` struct for fully-typed function parameter declarations; populate `DetailedInputParams`/`DetailedOutputParams` in `ExtractDetailedFunctions` via two helper lambdas; serialize as `detailedInputParams`/`detailedOutputParams` JSON arrays.
+- Changes:
+  - `BlueprintAnalyzer.h`: new `FBS_ParamInfo` USTRUCT (ParamName, TypeCategory, TypeSubCategory, TypeObjectPath, TypeObjectName, ContainerType, MapValueCategory, MapValueObjectPath, bIsReference, bIsConst, bIsOut, DefaultValue, Description); added `TArray<FBS_ParamInfo> DetailedInputParams` and `TArray<FBS_ParamInfo> DetailedOutputParams` to `FBS_FunctionInfo`.
+  - `BlueprintAnalyzer.cpp`:
+    - `PopulatePIFromProp` lambda in `ExtractDetailedFunctions` — maps `FProperty` (all container types, map key+value types, all primitive/object/struct type categories, bIsReference/bIsConst/bIsOut flags, DefaultValue from graph pin, Description) to `FBS_ParamInfo`.
+    - `PopulatePIFromPin` lambda in `ExtractDetailedFunctions` — maps `UEdGraphPin` (PinType category/subCategory/subCategoryObject, ContainerType+map value type, bIsReference/bIsConst, DefaultValue) to `FBS_ParamInfo`.
+    - Touch D: `DetailedOutputParams.Add(PopulatePIFromProp(...))` / `DetailedInputParams.Add(PopulatePIFromProp(...))` alongside existing `OutputParameters`/`InputParameters` string adds.
+    - Touch E: `DetailedOutputParams.Add(PopulatePIFromPin(Pin, true))` alongside pin-path output add.
+    - Touch F: `DetailedInputParams.Add(PopulatePIFromPin(Pin, false))` alongside pin-path input add.
+    - Touch G: JSON serializer emits `detailedInputParams` and `detailedOutputParams` arrays (conditional field emission, empty fields omitted) for each `FBS_FunctionInfo` in `DetailedFunctions`.
+  - Defects fixed during implementation:
+    - Lambda over-insertion: previous `.Replace()` inserted lambdas at all 5 occurrences of the anchor `\n\tfor (UEdGraph* Graph : Blueprint->FunctionGraphs)` across different functions; fixed by position-indexed removal (`fix_remove_extra_lambdas.ps1`) keeping only the correct `ExtractDetailedFunctions` occurrence.
+    - UE `PI` macro conflict: `PI` used as local variable name for `FBS_ParamInfo` instances shadowed by Unreal Engine's `#define PI (3.1415926535897932f)`, causing `error C2059: syntax error: 'constant'`; fixed by renaming all 103 standalone `\bPI\b` occurrences to `PInfo` via word-boundary regex (`fix_rename_PI.ps1`).
+  - Build: 4 incremental actions (compile `Module.BlueprintSerializer.3.cpp`, link `.lib`, link `.dll`, write metadata), 24 s.
+- Command:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_140724/BP_SLZR_ValidationReport_20260219_140756.json`
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260219_140756.json`
+  - `Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260219_140756.json`
+- Key metrics:
+  - `suitePass=true`, all gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`
+  - `detailedInputParams`/`detailedOutputParams` arrays are additive-only fields; no existing gate affected.
+- Result: `pass` — structured function parameter types add zero regression risk; `FBS_ParamInfo` payload provides full C++-codegen-ready type information for all function signatures.
+- Follow-up: CR-035 deeper node-to-bytecode trace linkage; CR-036 converter-side macro closure consumption wiring.
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.

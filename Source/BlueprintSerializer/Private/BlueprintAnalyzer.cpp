@@ -5355,6 +5355,66 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 		if (DetailedLocalVarArray.Num() > 0)
 			FuncObj->SetArrayField(TEXT("detailedLocalVariables"), DetailedLocalVarArray);
 
+			// Structured typed input parameters for C++ code generation
+			TArray<TSharedPtr<FJsonValue>> DetailedInputParamArray;
+			for (const FBS_ParamInfo& PInfo : FuncInfo.DetailedInputParams)
+			{
+				TSharedPtr<FJsonObject> PIObj = MakeShareable(new FJsonObject);
+				PIObj->SetStringField(TEXT("paramName"),      PInfo.ParamName);
+				PIObj->SetStringField(TEXT("typeCategory"),   PInfo.TypeCategory);
+				if (!PInfo.TypeSubCategory.IsEmpty())
+					PIObj->SetStringField(TEXT("typeSubCategory"), PInfo.TypeSubCategory);
+				if (!PInfo.TypeObjectPath.IsEmpty())
+					PIObj->SetStringField(TEXT("typeObjectPath"),  PInfo.TypeObjectPath);
+				if (!PInfo.TypeObjectName.IsEmpty())
+					PIObj->SetStringField(TEXT("typeObjectName"),  PInfo.TypeObjectName);
+				PIObj->SetStringField(TEXT("containerType"),  PInfo.ContainerType);
+				if (!PInfo.MapValueCategory.IsEmpty())
+					PIObj->SetStringField(TEXT("mapValueCategory"),   PInfo.MapValueCategory);
+				if (!PInfo.MapValueObjectPath.IsEmpty())
+					PIObj->SetStringField(TEXT("mapValueObjectPath"), PInfo.MapValueObjectPath);
+				PIObj->SetBoolField(TEXT("isReference"), PInfo.bIsReference);
+				PIObj->SetBoolField(TEXT("isConst"),     PInfo.bIsConst);
+				PIObj->SetBoolField(TEXT("isOut"),       PInfo.bIsOut);
+				if (!PInfo.DefaultValue.IsEmpty())
+					PIObj->SetStringField(TEXT("defaultValue"), PInfo.DefaultValue);
+				if (!PInfo.Description.IsEmpty())
+					PIObj->SetStringField(TEXT("description"), PInfo.Description);
+				DetailedInputParamArray.Add(MakeShareable(new FJsonValueObject(PIObj)));
+			}
+			if (DetailedInputParamArray.Num() > 0)
+				FuncObj->SetArrayField(TEXT("detailedInputParams"), DetailedInputParamArray);
+
+			// Structured typed output parameters for C++ code generation
+			TArray<TSharedPtr<FJsonValue>> DetailedOutputParamArray;
+			for (const FBS_ParamInfo& PInfo : FuncInfo.DetailedOutputParams)
+			{
+				TSharedPtr<FJsonObject> PIObj = MakeShareable(new FJsonObject);
+				PIObj->SetStringField(TEXT("paramName"),      PInfo.ParamName);
+				PIObj->SetStringField(TEXT("typeCategory"),   PInfo.TypeCategory);
+				if (!PInfo.TypeSubCategory.IsEmpty())
+					PIObj->SetStringField(TEXT("typeSubCategory"), PInfo.TypeSubCategory);
+				if (!PInfo.TypeObjectPath.IsEmpty())
+					PIObj->SetStringField(TEXT("typeObjectPath"),  PInfo.TypeObjectPath);
+				if (!PInfo.TypeObjectName.IsEmpty())
+					PIObj->SetStringField(TEXT("typeObjectName"),  PInfo.TypeObjectName);
+				PIObj->SetStringField(TEXT("containerType"),  PInfo.ContainerType);
+				if (!PInfo.MapValueCategory.IsEmpty())
+					PIObj->SetStringField(TEXT("mapValueCategory"),   PInfo.MapValueCategory);
+				if (!PInfo.MapValueObjectPath.IsEmpty())
+					PIObj->SetStringField(TEXT("mapValueObjectPath"), PInfo.MapValueObjectPath);
+				PIObj->SetBoolField(TEXT("isReference"), PInfo.bIsReference);
+				PIObj->SetBoolField(TEXT("isConst"),     PInfo.bIsConst);
+				PIObj->SetBoolField(TEXT("isOut"),       PInfo.bIsOut);
+				if (!PInfo.DefaultValue.IsEmpty())
+					PIObj->SetStringField(TEXT("defaultValue"), PInfo.DefaultValue);
+				if (!PInfo.Description.IsEmpty())
+					PIObj->SetStringField(TEXT("description"), PInfo.Description);
+				DetailedOutputParamArray.Add(MakeShareable(new FJsonValueObject(PIObj)));
+			}
+			if (DetailedOutputParamArray.Num() > 0)
+				FuncObj->SetArrayField(TEXT("detailedOutputParams"), DetailedOutputParamArray);
+
 		DetailedFuncArray.Add(MakeShareable(new FJsonValueObject(FuncObj)));
 	}
 	JsonObject->SetArrayField(TEXT("detailedFunctions"), DetailedFuncArray);
@@ -7344,6 +7404,114 @@ TArray<FBS_FunctionInfo> UBlueprintAnalyzer::ExtractDetailedFunctions(UBlueprint
 		return DetailedFuncs;
 	}
 
+
+	// Lambda: build FBS_ParamInfo from compiled FProperty
+	auto PopulatePIFromProp = [&](const FProperty* Prop, UK2Node_FunctionEntry* ENode) -> FBS_ParamInfo
+	{
+		FBS_ParamInfo PInfo;
+		if (!Prop) return PInfo;
+		PInfo.ParamName = Prop->GetName();
+		const FProperty* Inner = Prop;
+		if (const FArrayProperty* A = CastField<FArrayProperty>(Prop))
+		{
+			PInfo.ContainerType = TEXT("Array"); Inner = A->Inner;
+		}
+		else if (const FSetProperty* S = CastField<FSetProperty>(Prop))
+		{
+			PInfo.ContainerType = TEXT("Set"); Inner = S->ElementProp;
+		}
+		else if (const FMapProperty* M = CastField<FMapProperty>(Prop))
+		{
+			PInfo.ContainerType = TEXT("Map"); Inner = M->KeyProp;
+			if (M->ValueProp)
+			{
+				PInfo.MapValueCategory   = M->ValueProp->GetCPPType();
+				PInfo.MapValueObjectPath = GetPropertyObjectTypePath(M->ValueProp);
+			}
+		}
+		else { PInfo.ContainerType = TEXT("None"); }
+		if (Inner)
+		{
+			if      (CastField<FBoolProperty>(Inner))        PInfo.TypeCategory = TEXT("bool");
+			else if (CastField<FByteProperty>(Inner))        PInfo.TypeCategory = TEXT("byte");
+			else if (CastField<FIntProperty>(Inner))         PInfo.TypeCategory = TEXT("int");
+			else if (CastField<FInt64Property>(Inner))       PInfo.TypeCategory = TEXT("int64");
+			else if (CastField<FFloatProperty>(Inner))       PInfo.TypeCategory = TEXT("float");
+			else if (CastField<FDoubleProperty>(Inner))      PInfo.TypeCategory = TEXT("real");
+			else if (CastField<FStrProperty>(Inner))         PInfo.TypeCategory = TEXT("string");
+			else if (CastField<FNameProperty>(Inner))        PInfo.TypeCategory = TEXT("name");
+			else if (CastField<FTextProperty>(Inner))        PInfo.TypeCategory = TEXT("text");
+			else if (CastField<FInterfaceProperty>(Inner))   PInfo.TypeCategory = TEXT("interface");
+			else if (CastField<FEnumProperty>(Inner))        PInfo.TypeCategory = TEXT("byte");
+			else if (CastField<FSoftClassProperty>(Inner))   PInfo.TypeCategory = TEXT("softclass");
+			else if (CastField<FSoftObjectProperty>(Inner))  PInfo.TypeCategory = TEXT("softobject");
+			else if (CastField<FClassProperty>(Inner))       PInfo.TypeCategory = TEXT("class");
+			else if (CastField<FObjectPropertyBase>(Inner))  PInfo.TypeCategory = TEXT("object");
+			else if (CastField<FStructProperty>(Inner))      PInfo.TypeCategory = TEXT("struct");
+			else                                             PInfo.TypeCategory = Inner->GetCPPType();
+			PInfo.TypeObjectPath = GetPropertyObjectTypePath(Inner);
+			if (!PInfo.TypeObjectPath.IsEmpty())
+			{
+				int32 LastSlash = INDEX_NONE;
+				PInfo.TypeObjectPath.FindLastChar(TEXT('/'), LastSlash);
+				PInfo.TypeObjectName = (LastSlash != INDEX_NONE)
+					? PInfo.TypeObjectPath.RightChop(LastSlash + 1) : PInfo.TypeObjectPath;
+				PInfo.TypeObjectName.RemoveFromEnd(TEXT("_C"));
+			}
+		}
+		PInfo.bIsReference = Prop->HasAnyPropertyFlags(CPF_ReferenceParm);
+		PInfo.bIsConst     = Prop->HasAnyPropertyFlags(CPF_ConstParm);
+		PInfo.bIsOut       = Prop->HasAnyPropertyFlags(CPF_OutParm);
+		if (ENode)
+		{
+			if (UEdGraphPin* ParamPin = ENode->FindPin(Prop->GetFName(), EGPD_Input))
+			{
+				if (!ParamPin->DefaultValue.IsEmpty())
+					PInfo.DefaultValue = ParamPin->DefaultValue;
+				else if (!ParamPin->DefaultTextValue.IsEmpty())
+					PInfo.DefaultValue = ParamPin->DefaultTextValue.ToString();
+				else if (ParamPin->DefaultObject)
+					PInfo.DefaultValue = ParamPin->DefaultObject->GetPathName();
+			}
+		}
+		PInfo.Description = FString::Printf(TEXT("%s: %s"), *PInfo.ParamName, *DescribePropertyType(Prop));
+		return PInfo;
+	};
+
+	// Lambda: build FBS_ParamInfo from graph pin type (Blueprint-only functions)
+	auto PopulatePIFromPin = [&](const UEdGraphPin* Pin, bool bIsOutput) -> FBS_ParamInfo
+	{
+		FBS_ParamInfo PInfo;
+		if (!Pin) return PInfo;
+		PInfo.ParamName       = Pin->PinName.ToString();
+		PInfo.TypeCategory    = Pin->PinType.PinCategory.ToString();
+		PInfo.TypeSubCategory = Pin->PinType.PinSubCategory.ToString();
+		if (Pin->PinType.PinSubCategoryObject.IsValid())
+		{
+			PInfo.TypeObjectPath = Pin->PinType.PinSubCategoryObject->GetPathName();
+			PInfo.TypeObjectName = Pin->PinType.PinSubCategoryObject->GetName();
+		}
+		switch (Pin->PinType.ContainerType)
+		{
+		case EPinContainerType::Array: PInfo.ContainerType = TEXT("Array"); break;
+		case EPinContainerType::Set:   PInfo.ContainerType = TEXT("Set");   break;
+		case EPinContainerType::Map:
+			PInfo.ContainerType = TEXT("Map");
+			PInfo.MapValueCategory = Pin->PinType.PinValueType.TerminalCategory.ToString();
+			if (Pin->PinType.PinValueType.TerminalSubCategoryObject.IsValid())
+				PInfo.MapValueObjectPath = Pin->PinType.PinValueType.TerminalSubCategoryObject->GetPathName();
+			break;
+		default: PInfo.ContainerType = TEXT("None"); break;
+		}
+		PInfo.bIsReference = Pin->PinType.bIsReference;
+		PInfo.bIsConst     = Pin->PinType.bIsConst;
+		PInfo.bIsOut       = bIsOutput;
+		if (!bIsOutput && !Pin->DefaultValue.IsEmpty())
+			PInfo.DefaultValue = Pin->DefaultValue;
+		PInfo.Description = FString::Printf(TEXT("%s: %s"), *Pin->PinName.ToString(), *DescribePinTypeDetailed(Pin->PinType));
+		return PInfo;
+	};
+
 	for (UEdGraph* Graph : Blueprint->FunctionGraphs)
 	{
 		if (!Graph)
@@ -7476,10 +7644,12 @@ TArray<FBS_FunctionInfo> UBlueprintAnalyzer::ExtractDetailedFunctions(UBlueprint
 				if (Prop->HasAnyPropertyFlags(CPF_OutParm) || Prop->HasAnyPropertyFlags(CPF_ReferenceParm))
 				{
 					FuncInfo.OutputParameters.Add(ParamInfo);
+					FuncInfo.DetailedOutputParams.Add(PopulatePIFromProp(Prop, EntryNode));
 				}
 				else
 				{
 					FuncInfo.InputParameters.Add(ParamInfo);
+					FuncInfo.DetailedInputParams.Add(PopulatePIFromProp(Prop, EntryNode));
 				}
 			}
 		}
@@ -7510,6 +7680,7 @@ TArray<FBS_FunctionInfo> UBlueprintAnalyzer::ExtractDetailedFunctions(UBlueprint
 					else
 					{
 						FuncInfo.OutputParameters.Add(FString::Printf(TEXT("%s: %s"), *Pin->PinName.ToString(), *DescribePinTypeDetailed(Pin->PinType)));
+					FuncInfo.DetailedOutputParams.Add(PopulatePIFromPin(Pin, true));
 					}
 				}
 				else if (Pin->Direction == EGPD_Input && Pin->PinName != UEdGraphSchema_K2::PN_Execute)
@@ -7520,6 +7691,7 @@ TArray<FBS_FunctionInfo> UBlueprintAnalyzer::ExtractDetailedFunctions(UBlueprint
 						ParamInfo += FString::Printf(TEXT(" = %s"), *Pin->DefaultValue);
 					}
 					FuncInfo.InputParameters.Add(ParamInfo);
+					FuncInfo.DetailedInputParams.Add(PopulatePIFromPin(Pin, false));
 				}
 			}
 		}
