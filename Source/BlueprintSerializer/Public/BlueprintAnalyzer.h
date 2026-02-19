@@ -531,6 +531,8 @@ struct BLUEPRINTSERIALIZER_API FBS_PinLinkData
     UPROPERTY() FGuid TargetPinId;
     UPROPERTY() FString PinCategory;
     UPROPERTY() FString PinSubCategory;
+    // Full asset path of PinSubCategoryObject (e.g. class/struct/enum path) — needed for typed wire resolution
+    UPROPERTY() FString PinSubCategoryObjectPath;
     UPROPERTY() bool bIsExec = false;
 };
 

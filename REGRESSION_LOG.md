@@ -218,6 +218,24 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `pass` — CR-006 `tagMetadata` extraction and validator key alignment confirmed at full project scale.
 - Follow-up: evaluate whether AnimVariablePrefix tags should optionally emit a `sourceGraph` hint; continue CR-035 node-to-bytecode trace linkage and CR-036 converter-side macro closure consumption.
 
+### 2026-02-19 13:16 - Tier-1 graph node fidelity (K2Node parity + PinSubCategoryObjectPath)
+
+- Scope: add missing K2Node type handlers in `AnalyzeNodeToStruct` and populate `PinSubCategoryObjectPath` in `FBS_PinLinkData` / `AddDataLinks`.
+- Changes:
+  - `BlueprintAnalyzer.h`: added `PinSubCategoryObjectPath` field to `FBS_PinLinkData`
+  - `BlueprintAnalyzer.cpp`: new includes (`K2Node_Literal`, `K2Node_CallDelegate`, `K2Node_BaseMCDelegate`, `K2Node_CallArrayFunction`, `K2Node_Select`, `K2Node_Switch*`, `K2Node_MakeStruct`, `K2Node_BreakStruct`, `K2Node_StructOperation`, `K2Node_ClassDynamicCast`); new/extended node handlers for Literal, CallDelegate, CallArrayFunction, Select, SwitchEnum/Integer/Name/String, DynamicCast (isPureCast), ClassDynamicCast, MakeStruct, BreakStruct, CustomEvent (params), FunctionEntry (access specifier + localVarDecls), FunctionResult, ComponentBoundEvent; `AddDataLinks` and both JSON serializers emit `pinSubCategoryObjectPath`.
+  - Build: 4 incremental actions (one compile, link, dll, metadata), 26 s.
+- Command:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1 -BaselinePath Plugins/BlueprintSerializer/REGRESSION_BASELINE.json`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_131619/BP_SLZR_ValidationReport_20260219_131639.json`
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260219_131639.json`
+- Key metrics:
+  - `suitePass=true`, `overallPass=true`, all 14 gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`
+- Result: `pass` — Tier-1 graph fidelity changes compile and regress cleanly.
+- Follow-up: continue Tier-2 (local variable structured types, struct MakeStruct/BreakStruct field-pin mapping, MemberParent fallback); then CR-035/CR-036.
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.

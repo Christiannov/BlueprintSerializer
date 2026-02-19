@@ -84,7 +84,21 @@
 #include "K2Node_MacroInstance.h"
 #include "K2Node_Timeline.h"
 #include "K2Node_DynamicCast.h"
+#include "K2Node_ClassDynamicCast.h"
 #include "K2Node_CallParentFunction.h"
+#include "K2Node_Literal.h"
+#include "K2Node_CallDelegate.h"
+#include "K2Node_BaseMCDelegate.h"
+#include "K2Node_CallArrayFunction.h"
+#include "K2Node_Select.h"
+#include "K2Node_Switch.h"
+#include "K2Node_SwitchEnum.h"
+#include "K2Node_SwitchInteger.h"
+#include "K2Node_SwitchName.h"
+#include "K2Node_SwitchString.h"
+#include "K2Node_MakeStruct.h"
+#include "K2Node_BreakStruct.h"
+#include "K2Node_StructOperation.h"
 #include "EdGraphSchema_K2.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
@@ -2549,6 +2563,10 @@ TArray<FBS_GraphData_Ext> UBlueprintAnalyzer::ExtractStructuredGraphsExt(UBluepr
 				Link.TargetPinId = TargetPinId;
 				Link.PinCategory = Pin->PinType.PinCategory.ToString();
 				Link.PinSubCategory = Pin->PinType.PinSubCategory.ToString();
+				if (Pin->PinType.PinSubCategoryObject.IsValid())
+				{
+					Link.PinSubCategoryObjectPath = Pin->PinType.PinSubCategoryObject->GetPathName();
+				}
 				Link.bIsExec = false;
 				GraphData.DataLinks.Add(Link);
 			}
@@ -4409,6 +4427,245 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
         if (UK2Node_CustomEvent* CustomEvent = Cast<UK2Node_CustomEvent>(K2))
         {
             AddMeta(TEXT("meta.customEventName"), CustomEvent->CustomFunctionName.ToString());
+            // Capture typed parameter signatures from UserDefinedPins
+            TArray<FString> ParamDescs;
+            for (const TSharedPtr<FUserPinInfo>& PinInfo : CustomEvent->UserDefinedPins)
+            {
+                if (PinInfo.IsValid())
+                {
+                    FString PinDesc = FString::Printf(TEXT("%s: %s"),
+                        *PinInfo->PinName.ToString(),
+                        *DescribePinTypeDetailed(PinInfo->PinType));
+                    if (!PinInfo->PinDefaultValue.IsEmpty())
+                    {
+                        PinDesc += FString::Printf(TEXT(" = %s"), *PinInfo->PinDefaultValue);
+                    }
+                    ParamDescs.Add(PinDesc);
+                }
+            }
+            if (ParamDescs.Num() > 0)
+            {
+                AddMeta(TEXT("meta.customEventParams"), FString::Join(ParamDescs, TEXT(";")));
+                AddMeta(TEXT("meta.customEventParamCount"), FString::FromInt(ParamDescs.Num()));
+            }
+        }
+
+        // --- Literal node: captures object reference path for inline object literals ---
+        if (UK2Node_Literal* Literal = Cast<UK2Node_Literal>(K2))
+        {
+            if (UObject* ObjRef = Literal->GetObjectRef())
+            {
+                AddMeta(TEXT("meta.literalObjectPath"), ObjRef->GetPathName());
+                AddMeta(TEXT("meta.literalObjectName"), ObjRef->GetName());
+            }
+        }
+
+        // --- Delegate call: multicast delegate broadcast ---
+        if (UK2Node_CallDelegate* CallDel = Cast<UK2Node_CallDelegate>(K2))
+        {
+            AddMeta(TEXT("meta.delegateName"), CallDel->DelegateReference.GetMemberName().ToString());
+            if (UClass* Owner = CallDel->DelegateReference.GetMemberParentClass())
+            {
+                AddMeta(TEXT("meta.delegateOwner"), Owner->GetPathName());
+            }
+            AddMetaBool(TEXT("meta.isDelegateCall"), true);
+        }
+
+        // --- Array function: distinguish array target operations from regular calls ---
+        if (UK2Node_CallArrayFunction* ArrayCall = Cast<UK2Node_CallArrayFunction>(K2))
+        {
+            AddMetaBool(TEXT("meta.isArrayFunction"), true);
+            if (UEdGraphPin* ArrayPin = ArrayCall->GetTargetArrayPin())
+            {
+                AddMeta(TEXT("meta.arrayTargetPinName"), ArrayPin->PinName.ToString());
+            }
+        }
+
+        // --- Select node: multi-way value selector ---
+        if (UK2Node_Select* Select = Cast<UK2Node_Select>(K2))
+        {
+            AddMetaBool(TEXT("meta.isSelect"), true);
+            // Count option inputs (all non-exec inputs except index pin)
+            int32 OptionCount = 0;
+            for (UEdGraphPin* Pin : Node->Pins)
+            {
+                if (Pin && Pin->Direction == EGPD_Input &&
+                    Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec &&
+                    Pin->PinName != TEXT("Index"))
+                {
+                    OptionCount++;
+                }
+            }
+            AddMeta(TEXT("meta.selectOptionCount"), FString::FromInt(OptionCount));
+        }
+
+        // --- Switch nodes: control-flow branching on value ---
+        if (UK2Node_SwitchEnum* SwitchEnum = Cast<UK2Node_SwitchEnum>(K2))
+        {
+            AddMetaBool(TEXT("meta.isSwitch"), true);
+            AddMeta(TEXT("meta.switchType"), TEXT("Enum"));
+            if (SwitchEnum->Enum)
+            {
+                AddMeta(TEXT("meta.switchEnumPath"), SwitchEnum->Enum->GetPathName());
+                AddMeta(TEXT("meta.switchEnumName"), SwitchEnum->Enum->GetName());
+                // Serialize enum case names
+                TArray<FString> Cases;
+                for (const FName& Entry : SwitchEnum->EnumEntries)
+                {
+                    Cases.Add(Entry.ToString());
+                }
+                if (Cases.Num() > 0)
+                {
+                    AddMeta(TEXT("meta.switchCases"), FString::Join(Cases, TEXT(",")));
+                }
+                AddMeta(TEXT("meta.switchCaseCount"), FString::FromInt(Cases.Num()));
+            }
+        }
+
+        if (UK2Node_SwitchInteger* SwitchInt = Cast<UK2Node_SwitchInteger>(K2))
+        {
+            AddMetaBool(TEXT("meta.isSwitch"), true);
+            AddMeta(TEXT("meta.switchType"), TEXT("Integer"));
+            AddMeta(TEXT("meta.switchStartIndex"), FString::FromInt(SwitchInt->StartIndex));
+            // Count exec output pins (each is a case; subtract Default pin)
+            int32 CaseCount = 0;
+            for (UEdGraphPin* Pin : Node->Pins)
+            {
+                if (Pin && Pin->Direction == EGPD_Output &&
+                    Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec &&
+                    Pin->PinName != TEXT("Default"))
+                {
+                    CaseCount++;
+                }
+            }
+            AddMeta(TEXT("meta.switchCaseCount"), FString::FromInt(CaseCount));
+        }
+
+        if (UK2Node_SwitchName* SwitchName = Cast<UK2Node_SwitchName>(K2))
+        {
+            AddMetaBool(TEXT("meta.isSwitch"), true);
+            AddMeta(TEXT("meta.switchType"), TEXT("Name"));
+            TArray<FString> Cases;
+            for (const FName& PinName : SwitchName->PinNames)
+            {
+                Cases.Add(PinName.ToString());
+            }
+            if (Cases.Num() > 0)
+            {
+                AddMeta(TEXT("meta.switchCases"), FString::Join(Cases, TEXT(",")));
+            }
+            AddMeta(TEXT("meta.switchCaseCount"), FString::FromInt(Cases.Num()));
+        }
+
+        if (UK2Node_SwitchString* SwitchStr = Cast<UK2Node_SwitchString>(K2))
+        {
+            AddMetaBool(TEXT("meta.isSwitch"), true);
+            AddMeta(TEXT("meta.switchType"), TEXT("String"));
+            TArray<FString> Cases;
+            for (const FName& PinName : SwitchStr->PinNames)
+            {
+                Cases.Add(PinName.ToString());
+            }
+            if (Cases.Num() > 0)
+            {
+                AddMeta(TEXT("meta.switchCases"), FString::Join(Cases, TEXT(",")));
+            }
+            AddMeta(TEXT("meta.switchCaseCount"), FString::FromInt(Cases.Num()));
+            AddMetaBool(TEXT("meta.switchIsCaseSensitive"), SwitchStr->bIsCaseSensitive != 0);
+        }
+
+        // --- DynamicCast: add pure-cast flag to existing handler output ---
+        // (TargetType is already captured above; add bIsPureCast here)
+        if (UK2Node_DynamicCast* DynCast = Cast<UK2Node_DynamicCast>(K2))
+        {
+            AddMetaBool(TEXT("meta.isPureCast"), DynCast->IsNodePure());
+        }
+
+        // --- ClassDynamicCast: cast to a class type (UClass) ---
+        if (UK2Node_ClassDynamicCast* ClassCast = Cast<UK2Node_ClassDynamicCast>(K2))
+        {
+            AddMetaBool(TEXT("meta.isClassCast"), true);
+            // TargetType is also on UK2Node_DynamicCast (parent), already captured above
+        }
+
+        // --- MakeStruct / BreakStruct: struct construction/deconstruction ---
+        if (UK2Node_MakeStruct* MakeStruct = Cast<UK2Node_MakeStruct>(K2))
+        {
+            AddMetaBool(TEXT("meta.isMakeStruct"), true);
+            if (MakeStruct->StructType)
+            {
+                AddMeta(TEXT("meta.structTypePath"), MakeStruct->StructType->GetPathName());
+                AddMeta(TEXT("meta.structTypeName"), MakeStruct->StructType->GetName());
+            }
+        }
+
+        if (UK2Node_BreakStruct* BreakStruct = Cast<UK2Node_BreakStruct>(K2))
+        {
+            AddMetaBool(TEXT("meta.isBreakStruct"), true);
+            if (BreakStruct->StructType)
+            {
+                AddMeta(TEXT("meta.structTypePath"), BreakStruct->StructType->GetPathName());
+                AddMeta(TEXT("meta.structTypeName"), BreakStruct->StructType->GetName());
+            }
+        }
+
+        // --- FunctionEntry: local variable typed declarations + access specifier ---
+        if (UK2Node_FunctionEntry* FuncEntry = Cast<UK2Node_FunctionEntry>(K2))
+        {
+            AddMetaBool(TEXT("meta.isFunctionEntry"), true);
+            const int32 ExtraFlags = FuncEntry->GetExtraFlags();
+            if (ExtraFlags & FUNC_Protected)
+            {
+                AddMeta(TEXT("meta.accessSpecifier"), TEXT("protected"));
+            }
+            else if (ExtraFlags & FUNC_Private)
+            {
+                AddMeta(TEXT("meta.accessSpecifier"), TEXT("private"));
+            }
+            else
+            {
+                AddMeta(TEXT("meta.accessSpecifier"), TEXT("public"));
+            }
+            // Serialize local variable type descriptions for C++ conversion
+            TArray<FString> LocalVarDescs;
+            for (const FBPVariableDescription& LocalVar : FuncEntry->LocalVariables)
+            {
+                FString VarDesc = FString::Printf(TEXT("%s: %s"),
+                    *LocalVar.VarName.ToString(),
+                    *DescribePinTypeDetailed(LocalVar.VarType));
+                if (!LocalVar.DefaultValue.IsEmpty())
+                {
+                    VarDesc += FString::Printf(TEXT(" = %s"), *LocalVar.DefaultValue);
+                }
+                if (LocalVar.VarType.PinSubCategoryObject.IsValid())
+                {
+                    VarDesc += FString::Printf(TEXT(" [%s]"),
+                        *LocalVar.VarType.PinSubCategoryObject->GetPathName());
+                }
+                LocalVarDescs.Add(VarDesc);
+            }
+            if (LocalVarDescs.Num() > 0)
+            {
+                AddMeta(TEXT("meta.localVarDecls"), FString::Join(LocalVarDescs, TEXT(";")));
+                AddMeta(TEXT("meta.localVarCount"), FString::FromInt(LocalVarDescs.Num()));
+            }
+        }
+
+        // --- FunctionResult: marks the return point of a function ---
+        if (UK2Node_FunctionResult* FuncResult = Cast<UK2Node_FunctionResult>(K2))
+        {
+            AddMetaBool(TEXT("meta.isFunctionResult"), true);
+        }
+
+        // --- ComponentBoundEvent: event bound to a component's delegate ---
+        if (UK2Node_ComponentBoundEvent* CompEvent = Cast<UK2Node_ComponentBoundEvent>(K2))
+        {
+            AddMeta(TEXT("meta.componentPropertyName"), CompEvent->ComponentPropertyName.ToString());
+            AddMeta(TEXT("meta.delegatePropertyName"), CompEvent->DelegatePropertyName.ToString());
+            if (UClass* Owner = CompEvent->EventReference.GetMemberParentClass())
+            {
+                AddMeta(TEXT("meta.eventOwner"), Owner->GetPathName());
+            }
         }
     }
 
@@ -5447,6 +5704,8 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
                     LinkObj->SetStringField(TEXT("targetPinId"), Link.TargetPinId.ToString());
                 LinkObj->SetStringField(TEXT("pinCategory"), Link.PinCategory);
                 LinkObj->SetStringField(TEXT("pinSubCategory"), Link.PinSubCategory);
+                if (!Link.PinSubCategoryObjectPath.IsEmpty())
+                    LinkObj->SetStringField(TEXT("pinSubCategoryObjectPath"), Link.PinSubCategoryObjectPath);
                 LinkObj->SetBoolField(TEXT("isExec"), Link.bIsExec);
                 DataArray.Add(MakeShareable(new FJsonValueObject(LinkObj)));
             }
@@ -5693,6 +5952,8 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 					LinkObj->SetStringField(TEXT("targetPinId"), Link.TargetPinId.ToString());
 				LinkObj->SetStringField(TEXT("pinCategory"), Link.PinCategory);
 				LinkObj->SetStringField(TEXT("pinSubCategory"), Link.PinSubCategory);
+				if (!Link.PinSubCategoryObjectPath.IsEmpty())
+					LinkObj->SetStringField(TEXT("pinSubCategoryObjectPath"), Link.PinSubCategoryObjectPath);
 				LinkObj->SetBoolField(TEXT("isExec"), Link.bIsExec);
 				LinkArray.Add(MakeShareable(new FJsonValueObject(LinkObj)));
 			}
