@@ -102,7 +102,7 @@ $skipText = if ($SkipExport.IsPresent) { "true" } else { "false" }
 $exportArg = Convert-ToProjectRelativeCommandPath -AbsolutePath $ExportDir -ProjectRoot $projectDir
 $baselineArg = Convert-ToProjectRelativeCommandPath -AbsolutePath $BaselinePath -ProjectRoot $projectDir
 $execCmd = "BP_SLZR.RunRegressionSuite $exportArg $skipText $baselineArg;Quit"
-$argString = '"' + $ProjectPath + '" -unattended -nop4 -nosplash -ExecCmds="' + $execCmd + '"'
+$argString = '"' + $ProjectPath + '" -nullrhi -unattended -nop4 -nosplash -ExecCmds="' + $execCmd + '"'
 
 Write-Host "[Regression] ProjectPath: $ProjectPath"
 Write-Host "[Regression] ExportDir:   $ExportDir"

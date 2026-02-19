@@ -175,6 +175,49 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `blocked` (environment/runtime issue, not schema-gate logic).
 - Follow-up: fix ShaderCompileWorker runtime dependency loading for ShaderConductor (`dxil.dll` load path/dependency chain), or run on a known-good engine install, then rerun the regression suite to confirm non-zero gameplay-tag metadata metrics.
 
+### 2026-02-19 12:28 - ShaderCompileWorker fix + skip-export regression
+
+- Scope: resolve `dxil.dll` ShaderCompileWorker crash by adding `-nullrhi` to `Run-RegressionSuite.ps1` argument string; confirm harness runs to completion.
+- Fix applied:
+  - Added `-nullrhi` to `Scripts/Run-RegressionSuite.ps1` argument string; prevents shader compilation startup before commandlets run, eliminating the `dxil.dll` load failure.
+- Command:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1 -ExportDir Saved/BlueprintExports/BP_SLZR_All_20260218_8 -SkipExport -BaselinePath Plugins/BlueprintSerializer/REGRESSION_BASELINE.json`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260219_122828.json`
+  - `Saved/BlueprintExports/BP_SLZR_All_20260218_8/BP_SLZR_ValidationReport_20260219_122828.json`
+  - `Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260219_122828.json`
+- Key metrics:
+  - `suitePass=true`, all 14 validation gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`
+  - `gameplayTagsTotal=29`, `exportsWithGameplayTags=4`
+  - `gameplayTagsWithSourceGraphMetadata=0` — stale binary: `BlueprintExtractorCommands.cpp` modified 2026-02-18 18:25, binary last built 16:58; validator fix not yet compiled
+  - `gameplayTagsWithSourceNodeTypeMetadata=0` — same stale binary cause
+- Result: `pass` for harness unblock; CR-006 tag metadata metrics unreliable until binary rebuild.
+- Follow-up: rebuild `LyraEditor Win64 Development` to compile gameplay-tag validator key fix, then run full fresh export.
+
+### 2026-02-19 12:42 - Binary rebuild + full fresh regression (CR-006 confirmed)
+
+- Scope: rebuild `LyraEditor Win64 Development` to pick up the `BlueprintExtractorCommands.cpp` gameplay-tag validator alignment fix, then run a full fresh export regression.
+- Build:
+  - `Build.bat LyraEditor Win64 Development LyraStarterGame.uproject -NoUBA` — 4 incremental actions (compile `Module.BlueprintSerializer.3.cpp`, link `.lib`, link `.dll`, write metadata target); succeeded in 35 s.
+- Command:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1 -BaselinePath Plugins/BlueprintSerializer/REGRESSION_BASELINE.json`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_124240/` (fresh export batch, 485 files)
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260219_124249.json`
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_124240/BP_SLZR_ValidationReport_20260219_124249.json`
+  - `Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260219_124249.json`
+- Key metrics:
+  - `suitePass=true`, all 14 validation gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`, `missingRequiredExports=0`
+  - `gameplayTagsTotal=29`, `exportsWithGameplayTags=4`
+  - `gameplayTagsWithSourceGraphMetadata=24` — 24 GraphTagFlow tags with populated `sourceGraph` in `tagMetadata`
+  - `gameplayTagsWithSourceNodeTypeMetadata=24` — 24 GraphTagFlow tags with populated `sourceNodeType` in `tagMetadata`
+  - remaining 5 tags (29 − 24) are `AnimVariablePrefix` category entries carrying `sourceVariable`/`variableType` only; absence of `sourceGraph` is correct for that category
+  - all prior stability metrics unchanged: macro closure (`exportsWithMacroGraphPaths=164`), compiler fallback (`exportsWithBytecodeFallback=205`, total `841`), replication shape, ControlRig, curve, transition, notify
+- Result: `pass` — CR-006 `tagMetadata` extraction and validator key alignment confirmed at full project scale.
+- Follow-up: evaluate whether AnimVariablePrefix tags should optionally emit a `sourceGraph` hint; continue CR-035 node-to-bytecode trace linkage and CR-036 converter-side macro closure consumption.
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.
