@@ -15,6 +15,7 @@
 #include "Animation/AnimationAsset.h"
 #include "Animation/Skeleton.h"
 #include "Animation/AnimCurveTypes.h"
+#include "Animation/AnimCurveMetadata.h"
 #include "Animation/AnimData/AnimDataModel.h"
 // #include "Animation/AnimData/AnimDataModelInterface.h"  // Not available in UE 5.6
 #include "Animation/AnimNotifies/AnimNotify.h"
@@ -325,6 +326,62 @@ namespace
             Result.Add(MakeShareable(new FJsonValueNumber(Value)));
         }
         return Result;
+    }
+
+    TArray<TSharedPtr<FJsonValue>> BuildVectorArray(const TArray<FVector>& Values)
+    {
+        TArray<TSharedPtr<FJsonValue>> Result;
+        Result.Reserve(Values.Num());
+        for (const FVector& Value : Values)
+        {
+            TSharedPtr<FJsonObject> VectorObj = MakeShareable(new FJsonObject);
+            VectorObj->SetNumberField(TEXT("x"), Value.X);
+            VectorObj->SetNumberField(TEXT("y"), Value.Y);
+            VectorObj->SetNumberField(TEXT("z"), Value.Z);
+            Result.Add(MakeShareable(new FJsonValueObject(VectorObj)));
+        }
+
+        return Result;
+    }
+
+    FString BuildTransformString(const FTransform& Value)
+    {
+        const FVector Translation = Value.GetTranslation();
+        const FRotator Rotation = Value.GetRotation().Rotator();
+        const FVector Scale = Value.GetScale3D();
+        return FString::Printf(
+            TEXT("T=(%.6f,%.6f,%.6f);R=(%.6f,%.6f,%.6f);S=(%.6f,%.6f,%.6f)"),
+            Translation.X,
+            Translation.Y,
+            Translation.Z,
+            Rotation.Roll,
+            Rotation.Pitch,
+            Rotation.Yaw,
+            Scale.X,
+            Scale.Y,
+            Scale.Z);
+    }
+
+    FString DescribeInterpolationMode(const FRichCurve& Curve)
+    {
+        if (Curve.Keys.IsEmpty())
+        {
+            return TEXT("None");
+        }
+
+        switch (Curve.Keys[0].InterpMode)
+        {
+            case RCIM_Constant:
+                return TEXT("Constant");
+            case RCIM_Linear:
+                return TEXT("Linear");
+            case RCIM_Cubic:
+                return TEXT("Cubic");
+            case RCIM_None:
+                return TEXT("None");
+            default:
+                return TEXT("Unknown");
+        }
     }
 
     FString DescribePropertyType(const FProperty* Property)
@@ -857,6 +914,8 @@ namespace
         TSet<FString> Interfaces;
         TSet<FString> Assets;
         TSet<FString> ControlRigs;
+        TSet<FString> MacroGraphs;
+        TSet<FString> MacroBlueprints;
         TSet<FString> Modules;
     };
 
@@ -1373,6 +1432,27 @@ namespace
                 AddDependencyText(Node.MemberParent, Closure);
                 AddDependencyText(Node.MemberName, Closure);
 
+                if (Node.NodeType.Equals(TEXT("K2Node_MacroInstance"), ESearchCase::CaseSensitive))
+                {
+                    if (const FString* MacroGraphPath = Node.NodeProperties.Find(TEXT("meta.macroGraphPath")))
+                    {
+                        AddDependencyPath(*MacroGraphPath, Closure);
+                        if (!MacroGraphPath->IsEmpty())
+                        {
+                            Closure.MacroGraphs.Add(*MacroGraphPath);
+                        }
+                    }
+
+                    if (const FString* MacroBlueprintPath = Node.NodeProperties.Find(TEXT("meta.macroBlueprintPath")))
+                    {
+                        AddDependencyPath(*MacroBlueprintPath, Closure);
+                        if (!MacroBlueprintPath->IsEmpty())
+                        {
+                            Closure.MacroBlueprints.Add(*MacroBlueprintPath);
+                        }
+                    }
+                }
+
                 for (const TPair<FString, FString>& Pair : Node.NodeProperties)
                 {
                     AddDependencyText(Pair.Key, Closure);
@@ -1386,6 +1466,113 @@ namespace
                     AddDependencyPath(Pin.ValueObjectPath, Closure);
                     AddDependencyText(Pin.ObjectType, Closure);
                     AddDependencyText(Pin.ValueObjectType, Closure);
+                }
+            }
+        }
+
+        if (Data.StructuredGraphsExt.Num() == 0)
+        {
+            for (const FBS_GraphData& Graph : Data.StructuredGraphs)
+            {
+                for (const FString& NodeJsonText : Graph.Nodes)
+                {
+                    if (NodeJsonText.IsEmpty())
+                    {
+                        continue;
+                    }
+
+                    TSharedPtr<FJsonObject> NodeJson;
+                    const TSharedRef<TJsonReader<>> NodeReader = TJsonReaderFactory<>::Create(NodeJsonText);
+                    if (!FJsonSerializer::Deserialize(NodeReader, NodeJson) || !NodeJson.IsValid())
+                    {
+                        continue;
+                    }
+
+                    FString NodeType;
+                    if (!NodeJson->TryGetStringField(TEXT("nodeType"), NodeType))
+                    {
+                        NodeJson->TryGetStringField(TEXT("type"), NodeType);
+                    }
+
+                    FString MemberParent;
+                    if (NodeJson->TryGetStringField(TEXT("memberParent"), MemberParent))
+                    {
+                        AddDependencyText(MemberParent, Closure);
+                    }
+
+                    FString MemberName;
+                    if (NodeJson->TryGetStringField(TEXT("memberName"), MemberName))
+                    {
+                        AddDependencyText(MemberName, Closure);
+                    }
+
+                    const TSharedPtr<FJsonObject>* NodePropsObj = nullptr;
+                    if (NodeJson->TryGetObjectField(TEXT("nodeProperties"), NodePropsObj) && NodePropsObj && NodePropsObj->IsValid())
+                    {
+                        if (NodeType.Equals(TEXT("K2Node_MacroInstance"), ESearchCase::CaseSensitive))
+                        {
+                            FString MacroGraphPath;
+                            if ((*NodePropsObj)->TryGetStringField(TEXT("meta.macroGraphPath"), MacroGraphPath) && !MacroGraphPath.IsEmpty())
+                            {
+                                AddDependencyPath(MacroGraphPath, Closure);
+                                Closure.MacroGraphs.Add(MacroGraphPath);
+                            }
+
+                            FString MacroBlueprintPath;
+                            if ((*NodePropsObj)->TryGetStringField(TEXT("meta.macroBlueprintPath"), MacroBlueprintPath) && !MacroBlueprintPath.IsEmpty())
+                            {
+                                AddDependencyPath(MacroBlueprintPath, Closure);
+                                Closure.MacroBlueprints.Add(MacroBlueprintPath);
+                            }
+                        }
+
+                        for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*NodePropsObj)->Values)
+                        {
+                            FString ValueText;
+                            if (Pair.Value.IsValid())
+                            {
+                                Pair.Value->TryGetString(ValueText);
+                            }
+
+                            AddDependencyText(Pair.Key, Closure);
+                            AddDependencyText(ValueText, Closure);
+                        }
+                    }
+
+                    const TArray<TSharedPtr<FJsonValue>>* Pins = nullptr;
+                    if (NodeJson->TryGetArrayField(TEXT("pins"), Pins) && Pins)
+                    {
+                        for (const TSharedPtr<FJsonValue>& PinValue : *Pins)
+                        {
+                            const TSharedPtr<FJsonObject> PinObj = PinValue.IsValid() ? PinValue->AsObject() : nullptr;
+                            if (!PinObj.IsValid())
+                            {
+                                continue;
+                            }
+
+                            FString TextValue;
+                            if (PinObj->TryGetStringField(TEXT("objectPath"), TextValue))
+                            {
+                                AddDependencyPath(TextValue, Closure);
+                            }
+                            if (PinObj->TryGetStringField(TEXT("defaultObjectPath"), TextValue))
+                            {
+                                AddDependencyPath(TextValue, Closure);
+                            }
+                            if (PinObj->TryGetStringField(TEXT("valueObjectPath"), TextValue))
+                            {
+                                AddDependencyPath(TextValue, Closure);
+                            }
+                            if (PinObj->TryGetStringField(TEXT("objectType"), TextValue))
+                            {
+                                AddDependencyText(TextValue, Closure);
+                            }
+                            if (PinObj->TryGetStringField(TEXT("valueObjectType"), TextValue))
+                            {
+                                AddDependencyText(TextValue, Closure);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1404,6 +1591,8 @@ namespace
         ClosureJson->SetArrayField(TEXT("interfacePaths"), BuildStringArray(ToSortedArray(Closure.Interfaces)));
         ClosureJson->SetArrayField(TEXT("assetPaths"), BuildStringArray(ToSortedArray(Closure.Assets)));
         ClosureJson->SetArrayField(TEXT("controlRigPaths"), BuildStringArray(ToSortedArray(Closure.ControlRigs)));
+        ClosureJson->SetArrayField(TEXT("macroGraphPaths"), BuildStringArray(ToSortedArray(Closure.MacroGraphs)));
+        ClosureJson->SetArrayField(TEXT("macroBlueprintPaths"), BuildStringArray(ToSortedArray(Closure.MacroBlueprints)));
         ClosureJson->SetArrayField(TEXT("moduleNames"), BuildStringArray(ToSortedArray(Closure.Modules)));
 
         TSet<FString> IncludeHints;
@@ -1531,9 +1720,227 @@ FBS_BlueprintData UBlueprintAnalyzer::AnalyzeBlueprint(UBlueprint* Blueprint)
 		Data.PartiallySupportedNodeTypes.Sort();
 	}
 
+	// Gameplay-tag flow extraction from structured graph payloads (not just anim-variable heuristics).
+	{
+		auto IsLikelyGameplayTagLiteral = [](const FString& InValue) -> bool
+		{
+			FString Value = InValue;
+			Value.TrimStartAndEndInline();
+			if (Value.IsEmpty() || Value.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+			{
+				return false;
+			}
+
+			if (!Value.Contains(TEXT(".")))
+			{
+				return false;
+			}
+
+			if (Value.Contains(TEXT(" ")) || Value.Contains(TEXT("\t")) || Value.Contains(TEXT("\n")))
+			{
+				return false;
+			}
+
+			if (Value.Contains(TEXT("/")) || Value.Contains(TEXT("(")) || Value.Contains(TEXT(")")) || Value.Contains(TEXT("=")) || Value.Contains(TEXT("\"")))
+			{
+				return false;
+			}
+
+			return true;
+		};
+
+		auto CollectTagNamesFromText = [&IsLikelyGameplayTagLiteral](const FString& Text, TSet<FString>& OutTagNames)
+		{
+			if (Text.IsEmpty())
+			{
+				return;
+			}
+
+			auto CollectQuotedTagNames = [&Text, &OutTagNames](const FString& Needle, const FString& Terminator)
+			{
+				int32 SearchFrom = 0;
+				while (SearchFrom < Text.Len())
+				{
+					const int32 NeedleIndex = Text.Find(Needle, ESearchCase::CaseSensitive, ESearchDir::FromStart, SearchFrom);
+					if (NeedleIndex == INDEX_NONE)
+					{
+						break;
+					}
+
+					const int32 ValueStart = NeedleIndex + Needle.Len();
+					const int32 ValueEnd = Text.Find(Terminator, ESearchCase::CaseSensitive, ESearchDir::FromStart, ValueStart);
+					if (ValueEnd == INDEX_NONE)
+					{
+						break;
+					}
+
+					FString TagName = Text.Mid(ValueStart, ValueEnd - ValueStart);
+					TagName.TrimStartAndEndInline();
+					if (!TagName.IsEmpty() && !TagName.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+					{
+						OutTagNames.Add(TagName);
+					}
+
+					SearchFrom = ValueEnd + Terminator.Len();
+				}
+			};
+
+			CollectQuotedTagNames(TEXT("TagName=\""), TEXT("\""));
+			CollectQuotedTagNames(TEXT("TagName='"), TEXT("'"));
+
+			if (IsLikelyGameplayTagLiteral(Text))
+			{
+				OutTagNames.Add(Text);
+			}
+		};
+
+		auto UpsertGameplayTag = [&Data](const FString& TagName, const FString& Category, const FString& SourceGraph, const FString& SourceNodeType, const FString& SourceNodeTitle, const FString& SourceField)
+		{
+			if (TagName.IsEmpty() || TagName.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+			{
+				return;
+			}
+
+			for (FBS_GameplayTagStateData& Existing : Data.GameplayTags)
+			{
+				if (Existing.TagName == TagName)
+				{
+					if (Existing.TagCategory.IsEmpty())
+					{
+						Existing.TagCategory = Category;
+					}
+					return;
+				}
+			}
+
+			FBS_GameplayTagStateData TagData;
+			TagData.TagName = TagName;
+			TagData.TagCategory = Category;
+			if (!SourceGraph.IsEmpty())
+			{
+				TagData.TagMetadata.Add(TEXT("sourceGraph"), SourceGraph);
+			}
+			if (!SourceNodeType.IsEmpty())
+			{
+				TagData.TagMetadata.Add(TEXT("sourceNodeType"), SourceNodeType);
+			}
+			if (!SourceNodeTitle.IsEmpty())
+			{
+				TagData.TagMetadata.Add(TEXT("sourceNodeTitle"), SourceNodeTitle);
+			}
+			if (!SourceField.IsEmpty())
+			{
+				TagData.TagMetadata.Add(TEXT("sourceField"), SourceField);
+			}
+			Data.GameplayTags.Add(MoveTemp(TagData));
+		};
+
+		for (const FBS_GraphData& GraphData : Data.StructuredGraphs)
+		{
+			for (const FString& NodeStr : GraphData.Nodes)
+			{
+				if (NodeStr.IsEmpty())
+				{
+					continue;
+				}
+
+				TSharedPtr<FJsonObject> NodeObj;
+				const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(NodeStr);
+				if (!FJsonSerializer::Deserialize(Reader, NodeObj) || !NodeObj.IsValid())
+				{
+					continue;
+				}
+
+				FString NodeType;
+				NodeObj->TryGetStringField(TEXT("nodeType"), NodeType);
+				FString NodeTitle;
+				NodeObj->TryGetStringField(TEXT("nodeTitle"), NodeTitle);
+
+				const TSharedPtr<FJsonObject>* NodePropsObj = nullptr;
+				if (NodeObj->TryGetObjectField(TEXT("nodeProperties"), NodePropsObj) && NodePropsObj && NodePropsObj->IsValid())
+				{
+					for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*NodePropsObj)->Values)
+					{
+						FString ValueText;
+						if (Pair.Value.IsValid())
+						{
+							Pair.Value->TryGetString(ValueText);
+						}
+
+						TSet<FString> TagNames;
+						CollectTagNamesFromText(ValueText, TagNames);
+						if (Pair.Key.Contains(TEXT("GameplayTag"), ESearchCase::IgnoreCase))
+						{
+							CollectTagNamesFromText(Pair.Key, TagNames);
+						}
+
+						for (const FString& TagName : TagNames)
+						{
+							UpsertGameplayTag(TagName, TEXT("GraphTagFlow"), GraphData.GraphName, NodeType, NodeTitle, Pair.Key);
+						}
+					}
+				}
+
+				const TArray<TSharedPtr<FJsonValue>>* Pins = nullptr;
+				if (NodeObj->TryGetArrayField(TEXT("pins"), Pins) && Pins)
+				{
+					for (const TSharedPtr<FJsonValue>& PinValue : *Pins)
+					{
+						const TSharedPtr<FJsonObject> PinObj = PinValue.IsValid() ? PinValue->AsObject() : nullptr;
+						if (!PinObj.IsValid())
+						{
+							continue;
+						}
+
+						FString ObjectPath;
+						PinObj->TryGetStringField(TEXT("objectPath"), ObjectPath);
+						FString ValueObjectPath;
+						PinObj->TryGetStringField(TEXT("valueObjectPath"), ValueObjectPath);
+						FString PinType;
+						PinObj->TryGetStringField(TEXT("pinType"), PinType);
+
+						const bool bGameplayTagPin =
+							ObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTag")) ||
+							ObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTagContainer")) ||
+							ValueObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTag")) ||
+							ValueObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTagContainer")) ||
+							PinType.Contains(TEXT("GameplayTag"), ESearchCase::IgnoreCase);
+
+						FString DefaultValue;
+						PinObj->TryGetStringField(TEXT("defaultValue"), DefaultValue);
+						FString AutogeneratedDefaultValue;
+						PinObj->TryGetStringField(TEXT("autogeneratedDefaultValue"), AutogeneratedDefaultValue);
+						FString PinName;
+						PinObj->TryGetStringField(TEXT("pinName"), PinName);
+
+						if (bGameplayTagPin)
+						{
+							TSet<FString> TagNames;
+							CollectTagNamesFromText(DefaultValue, TagNames);
+							CollectTagNamesFromText(AutogeneratedDefaultValue, TagNames);
+							for (const FString& TagName : TagNames)
+							{
+								UpsertGameplayTag(TagName, TEXT("GraphTagFlow"), GraphData.GraphName, NodeType, NodeTitle, PinName);
+							}
+						}
+					}
+				}
+			}
+		}
+
+		Data.GameplayTags.Sort([](const FBS_GameplayTagStateData& A, const FBS_GameplayTagStateData& B)
+		{
+			return A.TagName < B.TagName;
+		});
+	}
+
 	// AnimBlueprint-specific extraction
 	ExtractAnimBlueprintData(Blueprint, Data);
 	ExtractUserTypeSchemas(Blueprint, Data);
+	Data.GameplayTags.Sort([](const FBS_GameplayTagStateData& A, const FBS_GameplayTagStateData& B)
+	{
+		return A.TagName < B.TagName;
+	});
 	
 	UE_LOG(LogTemp, Warning, TEXT("Blueprint %s analysis complete - Variables: %d, Functions: %d, Components: %d, Nodes: %d, Graphs: %d"), 
 		*Data.BlueprintName, Data.Variables.Num(), Data.Functions.Num(), Data.Components.Num(), Data.TotalNodeCount, Data.StructuredGraphs.Num());
@@ -2416,6 +2823,52 @@ void UBlueprintAnalyzer::ExtractAnimBlueprintData(UBlueprint* Blueprint, FBS_Blu
 	}
 	AddCandidatePath(OutData.TargetSkeletonPath, CandidateAssetPaths);
 
+	auto IsLikelyAnimOrRigAssetClass = [](const FTopLevelAssetPath& ClassPath) -> bool
+	{
+		const FString ClassName = ClassPath.GetAssetName().ToString();
+		return ClassName.Contains(TEXT("AnimSequence"), ESearchCase::CaseSensitive)
+			|| ClassName.Contains(TEXT("AnimMontage"), ESearchCase::CaseSensitive)
+			|| ClassName.Contains(TEXT("BlendSpace"), ESearchCase::CaseSensitive)
+			|| ClassName.Contains(TEXT("PoseAsset"), ESearchCase::CaseSensitive)
+			|| ClassName.Contains(TEXT("ControlRig"), ESearchCase::CaseSensitive);
+	};
+
+	{
+		FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+		IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+
+		FAssetRegistryDependencyOptions DependencyOptions;
+		DependencyOptions.bIncludeSoftPackageReferences = true;
+		DependencyOptions.bIncludeHardPackageReferences = true;
+		DependencyOptions.bIncludeSearchableNames = false;
+		DependencyOptions.bIncludeSoftManagementReferences = false;
+		DependencyOptions.bIncludeHardManagementReferences = false;
+
+		const FName BlueprintPackageName = *Blueprint->GetOutermost()->GetName();
+		TArray<FName> DependencyPackages;
+		if (AssetRegistry.K2_GetDependencies(BlueprintPackageName, DependencyOptions, DependencyPackages))
+		{
+			for (const FName& DependencyPackage : DependencyPackages)
+			{
+				TArray<FAssetData> DependencyAssets;
+				if (!AssetRegistry.GetAssetsByPackageName(DependencyPackage, DependencyAssets, true))
+				{
+					continue;
+				}
+
+				for (const FAssetData& DependencyAsset : DependencyAssets)
+				{
+					if (!IsLikelyAnimOrRigAssetClass(DependencyAsset.AssetClassPath))
+					{
+						continue;
+					}
+
+					AddCandidatePath(DependencyAsset.GetObjectPathString(), CandidateAssetPaths);
+				}
+			}
+		}
+	}
+
 	auto HarvestNodeCandidates = [&CandidateAssetPaths](const FBS_AnimNodeData& Node)
 	{
 		AddCandidatePath(Node.BlendSpaceAssetPath, CandidateAssetPaths);
@@ -2785,7 +3238,14 @@ void UBlueprintAnalyzer::ExtractStateMachine(UAnimationStateMachineGraph* SMGrap
 			TransData.SourceStateGuid = PrevState ? PrevState->NodeGuid : FGuid();
 			TransData.TargetStateGuid = NextState ? NextState->NodeGuid : FGuid();
 			TransData.TransitionGuid = TransitionNode->NodeGuid;
+			TransData.Priority = TransitionNode->PriorityOrder;
 			TransData.CrossfadeDuration = TransitionNode->CrossfadeDuration;
+			if (const UEnum* BlendModeEnum = StaticEnum<EAlphaBlendOption>())
+			{
+				TransData.BlendMode = BlendModeEnum->GetNameStringByValue(static_cast<int64>(TransitionNode->BlendMode));
+			}
+			TransData.BlendOutTriggerTime = TransitionNode->AutomaticRuleTriggerTime;
+			TransData.NotifyStateIndex = FString::FromInt(TransitionNode->TransitionInterrupt.TrackIndex);
 			TransData.bAutomaticRuleBasedOnSequencePlayer = TransitionNode->bAutomaticRuleBasedOnSequencePlayerInState;
 
 			if (const FString* SourceName = StateNamesByGuid.Find(TransData.SourceStateGuid))
@@ -2798,6 +3258,22 @@ void UBlueprintAnalyzer::ExtractStateMachine(UAnimationStateMachineGraph* SMGrap
 			}
 
 			ExtractObjectProperties(TransitionNode, TransData.TransitionProperties);
+			const FName StartNotifyName = TransitionNode->TransitionStart.GetNotifyEventName();
+			if (!StartNotifyName.IsNone())
+			{
+				TransData.TransitionProperties.Add(TEXT("transitionStartEventName"), StartNotifyName.ToString());
+			}
+			const FName EndNotifyName = TransitionNode->TransitionEnd.GetNotifyEventName();
+			if (!EndNotifyName.IsNone())
+			{
+				TransData.TransitionProperties.Add(TEXT("transitionEndEventName"), EndNotifyName.ToString());
+			}
+			const FName InterruptNotifyName = TransitionNode->TransitionInterrupt.GetNotifyEventName();
+			if (!InterruptNotifyName.IsNone())
+			{
+				TransData.TransitionProperties.Add(TEXT("transitionInterruptEventName"), InterruptNotifyName.ToString());
+			}
+
 			if (TransitionNode->BoundGraph)
 			{
 				ExtractTransitionRuleGraph(TransitionNode, TransData);
@@ -3184,19 +3660,49 @@ void UBlueprintAnalyzer::ExtractAnimSequenceNotifies(UAnimSequenceBase* Sequence
 		FrameRate = AnimSequence->GetSamplingFrameRate().AsDecimal();
 	}
 
+	auto ResolveTrackName = [Sequence](int32 TrackIndex) -> FString
+	{
+		if (TrackIndex >= 0 && TrackIndex < Sequence->AnimNotifyTracks.Num())
+		{
+			return Sequence->AnimNotifyTracks[TrackIndex].TrackName.ToString();
+		}
+
+		return FString();
+	};
+
 	for (const FAnimNotifyEvent& NotifyEvent : Sequence->Notifies)
 	{
 		FBS_AnimNotifyData NotifyData;
 		NotifyData.NotifyName = NotifyEvent.NotifyName.ToString();
-		NotifyData.TriggerTime = NotifyEvent.GetTime();
+		NotifyData.TriggerTime = NotifyEvent.GetTriggerTime();
 		NotifyData.TriggerFrame = FrameRate > 0.0f ? FMath::RoundToInt(NotifyData.TriggerTime * FrameRate) : 0;
+		NotifyData.Duration = NotifyEvent.GetDuration();
+		NotifyData.TrackIndex = NotifyEvent.TrackIndex;
+		NotifyData.TrackName = ResolveTrackName(NotifyData.TrackIndex);
 
-		if (NotifyEvent.Notify)
+		const FName TriggerEventName = NotifyEvent.GetNotifyEventName();
+		if (!TriggerEventName.IsNone())
+		{
+			NotifyData.TriggeredEventName = TriggerEventName.ToString();
+		}
+
+		if (NotifyEvent.NotifyStateClass)
+		{
+			NotifyData.NotifyClass = NotifyEvent.NotifyStateClass->GetClass()->GetName();
+			NotifyData.bIsNotifyState = true;
+			ExtractObjectProperties(NotifyEvent.NotifyStateClass, NotifyData.NotifyProperties);
+		}
+		else if (NotifyEvent.Notify)
 		{
 			NotifyData.NotifyClass = NotifyEvent.Notify->GetClass()->GetName();
-			NotifyData.bIsNotifyState = NotifyEvent.Notify->IsA<UAnimNotifyState>();
-			NotifyData.Duration = NotifyEvent.Duration;
+			NotifyData.bIsNotifyState = false;
 			ExtractObjectProperties(NotifyEvent.Notify, NotifyData.NotifyProperties);
+		}
+
+		if (!NotifyData.NotifyProperties.IsEmpty())
+		{
+			NotifyData.NotifyProperties.GetKeys(NotifyData.EventParameters);
+			NotifyData.EventParameters.Sort();
 		}
 
 		OutData.Notifies.Add(NotifyData);
@@ -3216,11 +3722,37 @@ void UBlueprintAnalyzer::ExtractAnimationCurves(UAnimSequence* Sequence, FBS_Ani
 		return;
 	}
 
+	USkeleton* Skeleton = Sequence->GetSkeleton();
+	const FString SequencePath = Sequence->GetPathName();
+
+	auto PopulateCurveMeta = [&Skeleton](FBS_AnimCurveData& CurveData, const FName& CurveName)
+	{
+		if (!Skeleton)
+		{
+			return;
+		}
+
+		if (const FCurveMetaData* CurveMeta = Skeleton->GetCurveMetaData(CurveName))
+		{
+			if (CurveMeta->Type.bMaterial)
+			{
+				CurveData.AffectedMaterials.AddUnique(CurveName.ToString());
+			}
+			if (CurveMeta->Type.bMorphtarget)
+			{
+				CurveData.AffectedMorphTargets.AddUnique(CurveName.ToString());
+			}
+		}
+	};
+
 	for (const FFloatCurve& FloatCurve : DataModel->GetFloatCurves())
 	{
 		FBS_AnimCurveData CurveData;
 		CurveData.CurveName = FloatCurve.GetName().ToString();
 		CurveData.CurveType = TEXT("FloatCurve");
+		CurveData.CurveAssetPath = SequencePath;
+		CurveData.InterpolationMode = DescribeInterpolationMode(FloatCurve.FloatCurve);
+		CurveData.AxisType = TEXT("Scalar");
 
 		for (const FRichCurveKey& Key : FloatCurve.FloatCurve.Keys)
 		{
@@ -3228,6 +3760,46 @@ void UBlueprintAnalyzer::ExtractAnimationCurves(UAnimSequence* Sequence, FBS_Ani
 			CurveData.KeyValues.Add(Key.Value);
 		}
 
+		PopulateCurveMeta(CurveData, FloatCurve.GetName());
+
+		OutData.Curves.Add(CurveData);
+	}
+
+	auto AddVectorCurve = [&](const FVectorCurve& SourceCurve, const FString& AxisType)
+	{
+		FBS_AnimCurveData CurveData;
+		CurveData.CurveName = SourceCurve.GetName().ToString();
+		CurveData.CurveType = TEXT("VectorCurve");
+		CurveData.CurveAssetPath = SequencePath;
+		CurveData.AxisType = AxisType;
+		CurveData.InterpolationMode = DescribeInterpolationMode(SourceCurve.FloatCurves[0]);
+		SourceCurve.GetKeys(CurveData.KeyTimes, CurveData.VectorValues);
+		PopulateCurveMeta(CurveData, SourceCurve.GetName());
+		OutData.Curves.Add(CurveData);
+	};
+
+	for (const FTransformCurve& TransformCurve : DataModel->GetTransformCurves())
+	{
+		AddVectorCurve(TransformCurve.TranslationCurve, TEXT("Translation"));
+		AddVectorCurve(TransformCurve.RotationCurve, TEXT("Rotation"));
+		AddVectorCurve(TransformCurve.ScaleCurve, TEXT("Scale"));
+
+		FBS_AnimCurveData CurveData;
+		CurveData.CurveName = TransformCurve.GetName().ToString();
+		CurveData.CurveType = TEXT("TransformCurve");
+		CurveData.CurveAssetPath = SequencePath;
+		CurveData.AxisType = TEXT("Transform");
+		CurveData.InterpolationMode = DescribeInterpolationMode(TransformCurve.TranslationCurve.FloatCurves[0]);
+
+		TArray<FTransform> TransformValues;
+		TransformCurve.GetKeys(CurveData.KeyTimes, TransformValues);
+		CurveData.TransformValues.Reserve(TransformValues.Num());
+		for (const FTransform& TransformValue : TransformValues)
+		{
+			CurveData.TransformValues.Add(BuildTransformString(TransformValue));
+		}
+
+		PopulateCurveMeta(CurveData, TransformCurve.GetName());
 		OutData.Curves.Add(CurveData);
 	}
 }
@@ -4146,41 +4718,6 @@ TArray<FString> UBlueprintAnalyzer::ExtractImplementedInterfaces(UBlueprint* Blu
 	return Interfaces;
 }
 
-FString UBlueprintAnalyzer::AnalyzeNodeDetails(UK2Node* Node)
-{
-#if 0  // Temporarily disabled due to BlueprintGraph include issues
-	if (!Node)
-	{
-		return FString();
-	}
-	
-	FString NodeType = Node->GetClass()->GetName();
-	FString NodeTitle = Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
-	
-	// Analyze specific node types
-	if (UK2Node_CallFunction* FuncNode = Cast<UK2Node_CallFunction>(Node))
-	{
-		if (FuncNode->FunctionReference.GetMemberName() != NAME_None)
-		{
-			return FString::Printf(TEXT("CallFunction: %s"), *FuncNode->FunctionReference.GetMemberName().ToString());
-		}
-	}
-	else if (UK2Node_VariableGet* VarGetNode = Cast<UK2Node_VariableGet>(Node))
-	{
-		return FString::Printf(TEXT("VariableGet: %s"), *VarGetNode->VariableReference.GetMemberName().ToString());
-	}
-	else if (UK2Node_VariableSet* VarSetNode = Cast<UK2Node_VariableSet>(Node))
-	{
-		return FString::Printf(TEXT("VariableSet: %s"), *VarSetNode->VariableReference.GetMemberName().ToString());
-	}
-	
-	return FString::Printf(TEXT("%s: %s"), *NodeType, *NodeTitle);
-#endif
-	
-	// Temporary stub implementation
-	return FString(TEXT("Node analysis temporarily disabled"));
-}
-
 FString UBlueprintAnalyzer::ExportBlueprintDataToJSON(const FBS_BlueprintData& Data)
 {
 	TSharedPtr<FJsonObject> JsonObject = BlueprintDataToJsonObject(Data);
@@ -4389,6 +4926,38 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 	JsonObject->SetArrayField(TEXT("assetReferences"), AssetRefArray);
 	JsonObject->SetArrayField(TEXT("unsupportedNodeTypes"), BuildStringArray(Data.UnsupportedNodeTypes));
 	JsonObject->SetArrayField(TEXT("partiallySupportedNodeTypes"), BuildStringArray(Data.PartiallySupportedNodeTypes));
+
+	TArray<TSharedPtr<FJsonValue>> BytecodeBackedFunctionArray;
+	int32 BytecodeBackedFunctionCount = 0;
+	for (const FBS_FunctionInfo& FuncInfo : Data.DetailedFunctions)
+	{
+		if (FuncInfo.BytecodeSize <= 0 && FuncInfo.BytecodeHash.IsEmpty())
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> BytecodeObj = MakeShareable(new FJsonObject);
+		BytecodeObj->SetStringField(TEXT("name"), FuncInfo.FunctionName);
+		BytecodeObj->SetStringField(TEXT("functionPath"), FuncInfo.FunctionPath);
+		BytecodeObj->SetNumberField(TEXT("bytecodeSize"), FuncInfo.BytecodeSize);
+		BytecodeObj->SetStringField(TEXT("bytecodeHash"), FuncInfo.BytecodeHash);
+		BytecodeObj->SetBoolField(TEXT("isOverride"), FuncInfo.bIsOverride);
+		BytecodeObj->SetBoolField(TEXT("callsParent"), FuncInfo.bCallsParent);
+		BytecodeBackedFunctionArray.Add(MakeShareable(new FJsonValueObject(BytecodeObj)));
+		BytecodeBackedFunctionCount++;
+	}
+
+	TSharedPtr<FJsonObject> CompilerIRFallbackObj = MakeShareable(new FJsonObject);
+	CompilerIRFallbackObj->SetStringField(TEXT("strategy"), TEXT("function-bytecode"));
+	CompilerIRFallbackObj->SetBoolField(TEXT("hasUnsupportedNodes"), Data.UnsupportedNodeTypes.Num() > 0);
+	CompilerIRFallbackObj->SetNumberField(TEXT("unsupportedNodeTypeCount"), Data.UnsupportedNodeTypes.Num());
+	CompilerIRFallbackObj->SetArrayField(TEXT("unsupportedNodeTypes"), BuildStringArray(Data.UnsupportedNodeTypes));
+	CompilerIRFallbackObj->SetNumberField(TEXT("partiallySupportedNodeTypeCount"), Data.PartiallySupportedNodeTypes.Num());
+	CompilerIRFallbackObj->SetArrayField(TEXT("partiallySupportedNodeTypes"), BuildStringArray(Data.PartiallySupportedNodeTypes));
+	CompilerIRFallbackObj->SetBoolField(TEXT("hasBytecodeFallback"), BytecodeBackedFunctionCount > 0);
+	CompilerIRFallbackObj->SetNumberField(TEXT("bytecodeBackedFunctionCount"), BytecodeBackedFunctionCount);
+	CompilerIRFallbackObj->SetArrayField(TEXT("bytecodeBackedFunctions"), BytecodeBackedFunctionArray);
+	JsonObject->SetObjectField(TEXT("compilerIRFallback"), CompilerIRFallbackObj);
 	
 	// Detailed variables
 	TArray<TSharedPtr<FJsonValue>> DetailedVarArray;
@@ -5344,8 +5913,12 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 				CurveObj->SetStringField(TEXT("curveAssetPath"), Curve.CurveAssetPath);
 				CurveObj->SetArrayField(TEXT("keyTimes"), BuildFloatArray(Curve.KeyTimes));
 				CurveObj->SetArrayField(TEXT("keyValues"), BuildFloatArray(Curve.KeyValues));
+				CurveObj->SetArrayField(TEXT("vectorValues"), BuildVectorArray(Curve.VectorValues));
+				CurveObj->SetArrayField(TEXT("transformValues"), BuildStringArray(Curve.TransformValues));
 				CurveObj->SetStringField(TEXT("interpolationMode"), Curve.InterpolationMode);
 				CurveObj->SetStringField(TEXT("axisType"), Curve.AxisType);
+				CurveObj->SetArrayField(TEXT("affectedMaterials"), BuildStringArray(Curve.AffectedMaterials));
+				CurveObj->SetArrayField(TEXT("affectedMorphTargets"), BuildStringArray(Curve.AffectedMorphTargets));
 				CurvesArray.Add(MakeShareable(new FJsonValueObject(CurveObj)));
 			}
 			AssetObj->SetArrayField(TEXT("curves"), CurvesArray);

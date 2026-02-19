@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "1.0",
+  "notes": "Conservative minimum thresholds to catch major regressions in automated extraction/validation.",
+  "requiredValidationGates": [
+    "manifestPresent",
+    "manifestCountsMatch",
+    "parseErrorsZero",
+    "requiredKeysPresent",
+    "variableDeclarationCoverage",
+    "functionDeclarationCoverage",
+    "variableReplicationShape",
+    "functionNetworkShape",
+    "classConfigFlagShape",
+    "componentOverrideShape",
+    "dependencyClosureCoverage",
+    "includeHintsCoverage",
+    "compilerIRFallbackShape",
+    "macroDependencyClosureShape"
+  ],
+  "validationMinMetrics": {
+    "rawBlueprintFileCount": 450,
+    "dependencyClosureNonEmpty": 450,
+    "includeHintsNonEmpty": 450,
+    "exportsWithCompilerIRFallbackShape": 450,
+    "exportsWithMacroDependencyClosureShape": 450,
+    "variablesTotal": 3000,
+    "variablesWithReplicationShape": 3000,
+    "functionsTotal": 900,
+    "functionsWithNetworkShape": 900,
+    "componentsTotal": 800,
+    "classConfigFlagsPresent": 450,
+    "animationAssetsTotal": 350,
+    "animationNotifiesTotal": 2500,
+    "animationCurvesTotal": 250,
+    "animationCurvesWithCurveAssetPath": 250,
+    "animationCurvesWithInterpolationMode": 250,
+    "animationCurvesWithAxisType": 250,
+    "animationTransitionsTotal": 40,
+    "animationTransitionsWithBlendMode": 40,
+    "animationTransitionsWithPriority": 40,
+    "animationTransitionsWithBlendOutTriggerTime": 40,
+    "animationTransitionsWithNotifyStateIndex": 40,
+    "controlRigsTotal": 2,
+    "controlRigsWithBones": 2
+  },
+  "curveAuditMinMetrics": {
+    "animSequenceAssetsTotal": 550,
+    "loadedAnimSequences": 550,
+    "sequencesWithAnyCurves": 200,
+    "sequencesWithFloatCurves": 200,
+    "floatCurvesTotal": 250
+  }
+}

@@ -21,6 +21,7 @@ with minimal manual interpretation and deterministic generation.
 ## 1.1) C++ complete conversion (primary focus)
 
 For this project, the primary success target is complete conversion of gameplay/class logic that is typically implemented in C++.
+This mandate is persistent: prioritize AI-executable C++ parity work before editor-heavy animation authoring tasks.
 
 Primary scope (must-pass):
 - class/type/signature fidelity
@@ -87,34 +88,38 @@ Must capture:
 - control rig linkage plus rig details needed to reproduce logic surfaces
 - control-rig hierarchy detail payload (`controls`, `bones`, feature/settings maps) with stable shape
 
-## 3) Current gaps in this build (as of 2026-02-17)
+## 3) Current gaps in this build (as of 2026-02-18)
 
 The build is improved, but not yet converter-perfect.
 
 Known gaps:
-- Animation asset breadth is low in latest batch (20 AnimBPs detected, assets extracted for 1).
-- ControlRig detection is partial in latest batch (20 AnimBPs detected, control rigs extracted for 3).
+- Animation asset breadth is substantially improved but not complete (latest full batch: `23` AnimBPs detected, `11` with non-zero extracted animation assets).
+- ControlRig detection remains partial in latest full batch (`23` AnimBPs detected, `3` with extracted control rigs).
 - Gameplay tags are best-effort from anim variable naming/type heuristics, not full tag flow extraction.
 - ControlRig hierarchy detail is now partially populated (`controls`, `bones`, feature/settings maps), and heuristic `controlToBoneMap` entries exist for some rigs, but broader control-bone semantics remain sparse.
 - Include/module mapping quality improved (`nativeIncludeHints`, `Default__` canonicalization), but module ownership/include fidelity still needs deeper compile-loop validation.
 - Some inheritable override edge-cases still need deeper coverage validation across larger parent-chain corpora.
-- Transition detail is partial (only some transition fields are populated; several remain defaults unless added).
-- Animation curves currently extract float curves only; vector/transform curve payloads are not populated.
-- Anim notify extended fields (`triggeredEventName`, `eventParameters`) are emitted but currently not populated.
-- Optional compiler-IR/bytecode fallback export is not available for hard-to-lower node cases.
+- Transition detail improved: `blendMode`, `priority`, `blendOutTriggerTime`, and `notifyStateIndex` now populate from transition nodes, but deeper transition event semantics still need expansion.
+- Animation curve payload shape has been expanded (`curveAssetPath`, `interpolationMode`, `axisType`, `vectorValues`, `transformValues`, `affectedMaterials`, `affectedMorphTargets`), but latest full export corpus remains float-curve-only (`animationCurvesFloatType=315`, `animationCurvesVectorType=0`, `animationCurvesTransformType=0`).
+- Project-wide AnimSequence curve audit confirms corpus limitation for non-float curve validation (`animSequenceAssetsTotal=584`, `sequencesWithTransformCurves=0`, `sequencesWithMaterialCurves=0`, `sequencesWithMorphCurves=0`, report: `Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260218_1.json`).
+- Material/morph curve linkage fields are emitted in schema shape but unpopulated in current project corpus (`animationCurvesWithAffectedMaterials=0`, `animationCurvesWithAffectedMorphTargets=0`).
+- Anim notify payload fields (`trackName`, `triggeredEventName`, `eventParameters`) are now populated and exercised at scale once anim assets are discovered; remaining gap is deeper semantic payload mapping beyond reflected property-key extraction.
+- Networking/replication schema shape is now enforced by validation gates (`variableReplicationShape`, `functionNetworkShape`), but current corpus still lacks non-default RPC/replication semantic usage (`functionsWithAnyNetworkSemantic=0`, `variablesReplicated=0`).
+- Compiler fallback payload is now emitted (`compilerIRFallback` with unsupported-node snapshot + bytecode-backed function manifest) and validation-gated, but deeper node-to-bytecode traceability is still pending for truly lossless hard-node lowering.
 
 Minor/polish gaps (still worth tracking):
 - Some output surfaces use mixed naming conventions/schema shapes (increases parser branching).
 - Legacy/active data-model surfaces should be consolidated to avoid long-term schema drift.
-- External macro dependency wiring should be made explicit for deterministic cross-blueprint conversion.
+- External macro dependency closure shape is explicitly enforced (`macroGraphPaths`, `macroBlueprintPaths`, `macroDependencyClosureShape`) and now observed in corpus metrics, but downstream converter wiring that consumes these closure paths still needs end-to-end codegen validation.
 
 ## 4) Priority work to reach converter-ready
 
-1. Raise Anim asset/control-rig discovery coverage (sanity-set based gates).
-2. Complete function/network metadata export (return type + RPC semantics).
-3. Implement real component hierarchy/value extraction.
-4. Fill ControlRig detail model (`controls`, `bones`, mappings, features).
-5. Expand notify/curve extraction depth for animation payload fidelity.
+1. Implement compiler IR/bytecode fallback for hard-to-lower nodes (`CR-035`).
+2. Add explicit external macro dependency closure wiring for cross-blueprint conversion correctness (`CR-036`).
+3. Replace gameplay-tag heuristics with richer tag-flow extraction (`CR-006`).
+4. Deepen include/module ownership fidelity for compile-ready generated output (`CR-014`, `CR-025`, `CR-028`).
+5. Expand non-default networking/replication semantic coverage now that schema-shape gates are enforced (`CR-008`).
+6. Continue animation/control-rig depth only after primary C++ mandate items above, or when AnimBP conversion is explicitly in-scope.
 
 ## 5) Acceptance gates for converter-ready status
 

@@ -5,6 +5,11 @@ A professional-grade Unreal Engine 5 plugin for serializing Blueprint assets to 
 Canonical scope reference: `FULL_EXTRACTION_DEFINITION.md`
 Converter-ready scope reference: `CONVERTER_READY_EXTRACTION_SPEC.md`
 Converter-ready live tracker: `CONVERTER_READY_TODO.md`
+Agent workflow/context: `AGENTS.md`
+Regression harness guide: `REGRESSION_HARNESS.md`
+Regression history: `REGRESSION_LOG.md`
+
+Project mandate: prioritize AI-first C++ conversion fidelity work before editor-heavy animation authoring tasks.
 
 ## Overview
 
@@ -63,6 +68,9 @@ Blueprint Serializer is an engine-level developer tool that extracts comprehensi
 | `BP_SLZR.Settings` | Open plugin settings | `BP_SLZR.Settings` |
 | `BP_SLZR.OpenFolder` | Open export directory | `BP_SLZR.OpenFolder` |
 | `BP_SLZR.GenerateContext` | Generate LLM context file | `BP_SLZR.GenerateContext /Game/BP_Character` |
+| `BP_SLZR.ValidateConverterReady` | Validate converter-ready export gates | `BP_SLZR.ValidateConverterReady Saved/BlueprintExports/BP_SLZR_All_20260218_5` |
+| `BP_SLZR.AuditAnimationCurves` | Audit project AnimSequence curve corpus | `BP_SLZR.AuditAnimationCurves Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260218_1.json` |
+| `BP_SLZR.RunRegressionSuite` | Run export+validate+curve audit regression flow with baseline gates | `BP_SLZR.RunRegressionSuite Saved/BlueprintExports/BP_SLZR_All_20260218_5 true Plugins/BlueprintSerializer/REGRESSION_BASELINE.json` |
 | `BP_SLZR.Version` | Show plugin version | `BP_SLZR.Version` |
 | `BP_SLZR.Help` | Display command help | `BP_SLZR.Help` |
 
@@ -118,6 +126,14 @@ Access via: **Tools → Blueprint Serializer** in the main menu bar
 1. Use BP_SLZR.Count to see total Blueprints
 2. Write script using BP_SLZR.Serialize commands
 3. Process JSON files with external tools
+```
+
+### Regression Harness (Recommended)
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1 `
+  -ExportDir Saved/BlueprintExports/BP_SLZR_All_20260218_5 `
+  -SkipExport `
+  -BaselinePath Plugins/BlueprintSerializer/REGRESSION_BASELINE.json
 ```
 
 ## Output Format

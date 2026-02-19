@@ -22,6 +22,8 @@
  * - BP_SLZR.ExtractProjectDependencyMap - Project-wide dependency map
  * - BP_SLZR.MapAssetNetwork - Asset network mapping
  * - BP_SLZR.ValidateConverterReady - Validate converter-ready export gates
+ * - BP_SLZR.AuditAnimationCurves - Audit project anim curve corpus
+ * - BP_SLZR.RunRegressionSuite - Run full regression workflow
  */
 class BLUEPRINTSERIALIZER_API FBlueprintExtractorCommands
 {
@@ -38,6 +40,8 @@ private:
     static void ExportMultipleBlueprints(const TArray<FString>& Args);
     static void CountProjectBlueprints(const TArray<FString>& Args);
     static void ValidateConverterReady(const TArray<FString>& Args);
+    static void AuditAnimationCurves(const TArray<FString>& Args);
+    static void RunRegressionSuite(const TArray<FString>& Args);
 
     // Dependency mapping commands
     static void ExtractAssetDependencies(const TArray<FString>& Args);

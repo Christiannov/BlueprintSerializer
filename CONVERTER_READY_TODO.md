@@ -2,7 +2,7 @@
 
 Live tracker for closing gaps in `CONVERTER_READY_EXTRACTION_SPEC.md`.
 
-Last updated: 2026-02-16
+Last updated: 2026-02-18
 Owner: BlueprintSerializer team
 
 ## Status legend
@@ -11,6 +11,11 @@ Owner: BlueprintSerializer team
 - `in_progress` = partially implemented or implemented without full validation.
 - `todo` = not implemented yet.
 - `blocked` = cannot proceed due to engine/API/project constraint.
+
+Mandate override (2026-02-18):
+- All focus/work items are intentionally normalized to `todo` to keep a single prioritized backlog state.
+- "Left off" context in notes preserves prior state and latest evidence.
+- Primary mandate is AI-first C++ conversion fidelity work; editor-heavy animation authoring tasks stay secondary.
 
 ## Baseline snapshot (latest batch)
 
@@ -240,6 +245,110 @@ Batch sampled:
   - `rawBlueprintFileCount=485`, `duplicateBlueprintExportsIgnored=0`
   - `exportsWithControlRigs=3`, `controlRigsWithControls=1`, `controlRigsWithBones=3`, `controlRigsWithControlToBoneMap=1`
 
+## Transition + notify payload enrichment batch (2026-02-17)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_All_20260217_6/*.json`
+- Manifest: `Saved/BlueprintExports/BP_SLZR_All_20260217_6/BP_SLZR_Manifest_20260217_183118.json`
+- Validation report: `Saved/BlueprintExports/BP_SLZR_All_20260217_6/BP_SLZR_ValidationReport_20260217_195321.json`
+
+- Full export command succeeds: `BP_SLZR.ExportAllBlueprints Saved/BlueprintExports/BP_SLZR_All_20260217_6` -> `Success: 485, Failed: 0`.
+- Transition payload enrichment:
+  - explicitly populated transition fields from editor node data: `blendMode`, `priority`, `blendOutTriggerTime`, `notifyStateIndex`
+  - sample evidence: `BP_SLZR_Blueprint_ABP_Mannequin_Base_da729c0c_20260217_183118.json` now shows populated transition fields (`blendMode=HermiteCubic`, `priority=1`, etc.)
+- Notify payload enrichment:
+  - `ExtractAnimSequenceNotifies` now fills `trackIndex`, `trackName`, `triggeredEventName`, and derives `eventParameters` from extracted notify property keys
+  - current full-batch remains limited by upstream anim-asset breadth (`animationNotifiesTotal=0`), so these fields are implemented but not yet broadly exercised in this corpus
+- Validation metrics on this batch:
+  - `overallPass=true`
+  - transition coverage metrics: `animationTransitionsTotal=45`, `animationTransitionsWithBlendMode=45`, `animationTransitionsWithPriority=45`, `animationTransitionsWithBlendOutTriggerTime=45`, `animationTransitionsWithNotifyStateIndex=45`
+  - notify metrics: `animationAssetsTotal=2`, `animationNotifiesTotal=0`
+
+## Anim dependency harvest follow-up batch (2026-02-18)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_All_20260218_1/*.json`
+- Manifest: `Saved/BlueprintExports/BP_SLZR_All_20260218_1/BP_SLZR_Manifest_20260217_202028.json`
+- Validation report: `Saved/BlueprintExports/BP_SLZR_All_20260218_1/BP_SLZR_ValidationReport_20260217_211948.json`
+
+- Full export command succeeds: `BP_SLZR.ExportAllBlueprints Saved/BlueprintExports/BP_SLZR_All_20260218_1` -> `Success: 485, Failed: 0`.
+- Anim asset breadth uplift from AssetRegistry dependency harvest in `ExtractAnimBlueprintData`:
+  - now seeds AnimBP candidate set with likely anim/control-rig dependency packages (hard+soft package refs)
+  - lifts full-batch extraction from sparse anim assets/notifies to broad coverage
+- Validation metrics on this batch:
+  - `overallPass=true`
+  - `animationAssetsTotal=409` (up from `2` in `_20260217_6`)
+  - `animationNotifiesTotal=2960`, with `trackName=2960`, `triggeredEventName=2960`, `eventParameters=2960`
+  - transitions remain fully populated: `45/45` for blend/priority/blendOut/notifyState fields
+- AnimBP corpus comparison (regex audit over exported files):
+  - `_20260217_6`: `AnimBPs=23`, with non-zero `totalAnimAssets=2`, `totalControlRigs=3`
+  - `_20260218_1`: `AnimBPs=23`, with non-zero `totalAnimAssets=11`, `totalControlRigs=3`
+- Follow-up coverage report from `_20260218_5` exports:
+  - artifact: `Saved/BlueprintExports/BP_SLZR_AnimBPAssetCoverage_20260218_1.json`
+  - `23` AnimBlueprint-like exports total; `11` with non-zero `animationAssets`, `12` with zero.
+  - Highest-yield AnimBPs are locomotion layer assets (`66-69` assets each for core rifle/pistol/unarmed layer blueprints).
+  - Remaining zero-asset set is dominated by wrapper/reference-style AnimBPs (for example ref-pose/retarget/tutorial/interface/post-process patterns).
+
+## Curve payload expansion batch (2026-02-18)
+
+Batch sampled:
+
+- `Saved/BlueprintExports/BP_SLZR_All_20260218_5/*.json`
+- Manifest: `Saved/BlueprintExports/BP_SLZR_All_20260218_5/BP_SLZR_Manifest_20260218_044451.json`
+- Validation report: `Saved/BlueprintExports/BP_SLZR_All_20260218_5/BP_SLZR_ValidationReport_20260218_044457.json`
+- Spot-check sample: `Saved/BlueprintExports/BP_SLZR_All_20260218_5/BP_SLZR_Blueprint_ABP_UnarmedAnimLayers_Feminine_a00a73b3_20260218_044450.json`
+
+- Full export command succeeds: `BP_SLZR.ExportAllBlueprints Saved/BlueprintExports/BP_SLZR_All_20260218_5` -> `Success: 485, Failed: 0`.
+- Validation command succeeds: `BP_SLZR.ValidateConverterReady` on this batch -> `overallPass=true`.
+- Curve payload expansion now emitted in `animationCurves` shape:
+  - `curveAssetPath`, `interpolationMode`, and `axisType` now populated in the observed float-curve corpus (`315/315` each).
+  - `vectorValues`, `transformValues`, `affectedMaterials`, and `affectedMorphTargets` now serialized as explicit fields (present in schema even when empty).
+- Curve metrics in this batch:
+  - `animationCurvesTotal=315`
+  - `animationCurvesWithCurveAssetPath=315`
+  - `animationCurvesWithInterpolationMode=315`
+  - `animationCurvesWithAxisType=315`
+  - `animationCurvesWithVectorValues=0`
+  - `animationCurvesWithTransformValues=0`
+  - `animationCurvesWithAffectedMaterials=0`
+  - `animationCurvesWithAffectedMorphTargets=0`
+  - `animationCurvesFloatType=315`
+  - `animationCurvesVectorType=0`
+  - `animationCurvesTransformType=0`
+- Interpretation:
+  - CR-013 schema payload expansion is implemented and validated for float-curve fields.
+  - No vector/transform curve instances were observed in this corpus; non-float curve population remains a corpus/coverage follow-up.
+
+## Project-wide animation curve corpus audit (2026-02-18)
+
+Audit artifact:
+
+- `Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260218_1.json`
+
+- Command check: `BP_SLZR.AuditAnimationCurves Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260218_1.json` succeeds and writes audit report.
+- Project-wide AnimSequence curve corpus metrics from the audit:
+  - `animSequenceAssetsTotal=584`
+  - `loadedAnimSequences=584`
+  - `sequencesWithAnyCurves=233`
+  - `sequencesWithFloatCurves=233`
+  - `sequencesWithTransformCurves=0`
+  - `sequencesWithMaterialCurves=0`
+  - `sequencesWithMorphCurves=0`
+  - `floatCurvesTotal=281`
+  - `transformCurvesTotal=0`
+  - `materialCurvesTotal=0`
+  - `morphCurvesTotal=0`
+- Audit candidate arrays are empty:
+  - `transformCurveAssets=[]`
+  - `materialCurveAssets=[]`
+  - `morphCurveAssets=[]`
+  - `candidateSequencePaths=[]`
+- Interpretation:
+  - Current project corpus does not contain non-float AnimSequence curve instances to exercise CR-013 vector/transform/material/morph value population paths.
+  - CR-013 implementation work is present, but full non-float runtime population validation is blocked on corpus availability.
+
 ## C++ complete conversion focus (primary)
 
 This section defines the must-have subset for "things usually done in C++".
@@ -247,51 +356,52 @@ We should treat these as blocking items before calling the serializer C++-comple
 
 | Focus ID | Goal | Mapped work items | Status |
 |---|---|---|---|
-| CXX-001 | Deterministic class/function graph IR for codegen | CR-001, CR-016, CR-018, CR-026 | in_progress |
-| CXX-002 | Lossless type/signature model (params/returns/containers/object paths) | CR-007, CR-022, CR-025 | in_progress |
-| CXX-003 | Runtime semantics parity (RPC/replication/authority/delegates/latent/timeline) | CR-008, CR-019, CR-020 | in_progress |
-| CXX-004 | Class defaults + component hierarchy/defaults/overrides parity | CR-009, CR-010, CR-023, CR-024 | in_progress |
-| CXX-005 | Symbol/dependency closure for generated C++ includes/modules | CR-014, CR-025, CR-028 | in_progress |
-| CXX-006 | Function implementation parity for real project patterns | CR-021, CR-027 | in_progress |
-| CXX-007 | UPROPERTY/UFUNCTION/class specifier parity for generated C++ declarations | CR-023, CR-029 | in_progress |
-| CXX-008 | Unsupported/custom node fallback path for correctness | CR-035, CR-037 | in_progress |
+| CXX-001 | Deterministic class/function graph IR for codegen | CR-001, CR-016, CR-018, CR-026 | todo |
+| CXX-002 | Lossless type/signature model (params/returns/containers/object paths) | CR-007, CR-022, CR-025 | todo |
+| CXX-003 | Runtime semantics parity (RPC/replication/authority/delegates/latent/timeline) | CR-008, CR-019, CR-020 | todo |
+| CXX-004 | Class defaults + component hierarchy/defaults/overrides parity | CR-009, CR-010, CR-023, CR-024 | todo |
+| CXX-005 | Symbol/dependency closure for generated C++ includes/modules | CR-014, CR-025, CR-028 | todo |
+| CXX-006 | Function implementation parity for real project patterns | CR-021, CR-027 | todo |
+| CXX-007 | UPROPERTY/UFUNCTION/class specifier parity for generated C++ declarations | CR-023, CR-029 | todo |
+| CXX-008 | Unsupported/custom node fallback path for correctness | CR-035, CR-037 | todo |
 
 Notes:
 - Animation depth items remain important for AnimBP conversion, but they are secondary to the CXX-* goals for gameplay/class conversion.
+- CXX focus rows were previously `in_progress` before mandate reset; reset keeps priority ordering explicit while preserving left-off context in mapped CR notes.
 
 ## Work items
 
 | ID | Area | Task | Status | Notes |
 |---|---|---|---|---|
-| CR-001 | Schema | Keep required stable keys always emitted for all exports | done | `structuredGraphs`, `coverage`, `graphsSummary` are stable |
-| CR-002 | Anim vars | Resolve AnimBP variable defaults robustly | in_progress | `116/117` populated; finish edge cases |
-| CR-003 | Anim assets | Increase animation asset discovery coverage from graph/rule/layer/property paths | in_progress | current `1/20` AnimBPs with assets |
-| CR-004 | ControlRig linkage | Discover and extract referenced ControlRigs from AnimBP nodes/properties | in_progress | current `3/20` AnimBPs with rigs |
-| CR-005 | ControlRig detail model | Populate `controls`, `bones`, `controlToBoneMap`, feature fields | in_progress | hierarchy-driven `controls`/`bones`/feature maps populated; heuristic control-bone mapping now emits non-empty maps for a subset of rigs, but broader semantic mapping remains pending |
-| CR-006 | Gameplay tags | Replace name/type heuristics with richer tag flow extraction | todo | currently best-effort only |
-| CR-007 | Function signatures | Populate explicit return type + richer typed parameter metadata | in_progress | return/object-path metadata now exported; needs wider corpus validation |
-| CR-008 | Networking semantics | Export RPC kind/reliability/validation + RepNotify linkage | in_progress | network flags + RepNotify now exported; validation expansion pending |
-| CR-009 | Components | Extract real component hierarchy and actual default values | in_progress | parent/root/inherited metadata + default property extraction implemented |
-| CR-010 | Component deps | Populate component-level asset/class references | in_progress | component asset references now emitted; validate at scale |
-| CR-011 | Transition fidelity | Populate full transition fields (blend mode, priority, notify index, etc.) | todo | some fields remain defaults |
-| CR-012 | Notify fidelity | Populate track/event payload (`trackName`, `eventParameters`, etc.) | todo | currently minimal notify payload |
-| CR-013 | Curve fidelity | Add vector/transform/material/morph curve extraction where available | todo | currently float-curve path only |
-| CR-014 | Dependency closure | Emit converter-facing dependency closure manifest (types/modules/includes) | in_progress | emits class/struct/enum/interface/asset/control-rig/module sets plus `includeHints` and `nativeIncludeHints`; include/module fidelity still needs deeper compile-loop tuning |
-| CR-015 | Tooling parity | Implement missing module entrypoints (`BP_SLZR.Serialize`, selected serialize, context generation) | done | wired module commands + implemented `GenerateLLMContext()` |
-| CR-016 | Validation gates | Automate converter-ready gate checks and publish pass/fail report per run | done | `BP_SLZR.ValidateConverterReady` emits per-run JSON report with gate-level pass/fail + coverage metrics and now de-duplicates reused export directories |
-| CR-017 | Legacy path cleanup | Replace/remove `AnalyzeNodeDetails` temporary stub path to avoid partial legacy behavior | todo | `BlueprintAnalyzer.cpp` contains disabled legacy node-analysis stub |
-| CR-018 | Command surface consistency | Unify command entrypoints so all public commands use the same extraction/export pipeline | in_progress | major path now unified; legacy extractor command surface still exists |
-| CR-019 | Delegate model | Extract dispatcher declarations + delegate signature graphs as converter IR | in_progress | delegate signatures + delegate graph coverage now exported |
-| CR-020 | Timeline model | Extract `UTimelineTemplate` tracks/keys/events/length/loop settings (not only node name) | in_progress | timeline template/track/key metadata now exported |
-| CR-021 | Function locals | Extract function-local variable declarations/defaults/scopes from function entry metadata | in_progress | local variable declarations now exported |
-| CR-022 | Type fidelity | Export full variable type model (container kind, key/value type, object/class path) for member vars/functions | in_progress | added category/subcategory/object-path/container flags |
-| CR-023 | Class/component overrides | Export inheritable component overrides and class-level config flags relevant to generated C++ | in_progress | inheritable override metadata/delta fields plus class-level `classConfigFlags` now emitted; expand override-depth edge cases |
-| CR-024 | Class defaults | Export class default object (CDO) property delta for converter-visible gameplay settings | in_progress | `classDefaultValues` + `classDefaultValueDelta` now emitted; filtering/scope tuning still pending |
-| CR-025 | Symbol identity | Export fully-qualified paths for parent classes, interfaces, types, and callable owners | in_progress | class/interface/type paths now exported in primary schema |
-| CR-026 | Graph coverage | Include delegate/collapsed/other relevant editable graphs beyond Ubergraph/Function/Macro | in_progress | added delegate/event coverage and construction role tagging |
-| CR-027 | Override semantics | Export explicit override/parent-call semantics for events and overridden functions | in_progress | `bIsOverride`/`bCallsParent` + parent-call node metadata exported |
-| CR-028 | User type schemas | Export user-defined struct/enum schema details required for C++ type generation/mapping | in_progress | `userDefinedStructSchemas` / `userDefinedEnumSchemas` now emitted; richer defaults/metadata still pending |
-| CR-029 | Declaration specifiers | Export class/property/function specifier-level metadata needed for header generation parity | in_progress | class-level `classSpecifiers` plus variable/function `declarationSpecifiers` now emitted; deeper UHT parity still pending |
+| CR-001 | Schema | Keep required stable keys always emitted for all exports | todo | left off (done): `structuredGraphs`, `coverage`, `graphsSummary` are stable |
+| CR-002 | Anim vars | Resolve AnimBP variable defaults robustly | todo | left off (in_progress): `116/117` populated; finish edge cases |
+| CR-003 | Anim assets | Increase animation asset discovery coverage from graph/rule/layer/property paths | todo | left off (in_progress): dependency-harvest pass lifted coverage to `11/23` AnimBPs with non-zero `totalAnimAssets` (from `2/23` in prior full batch); continue improving long-tail detection |
+| CR-004 | ControlRig linkage | Discover and extract referenced ControlRigs from AnimBP nodes/properties | todo | left off (in_progress): current latest full-batch corpus: `3/23` AnimBPs with non-zero `totalControlRigs`; maintain while expanding discovery paths |
+| CR-005 | ControlRig detail model | Populate `controls`, `bones`, `controlToBoneMap`, feature fields | todo | left off (in_progress): hierarchy-driven `controls`/`bones`/feature maps populated; heuristic control-bone mapping now emits non-empty maps for a subset of rigs, but broader semantic mapping remains pending |
+| CR-006 | Gameplay tags | Replace name/type heuristics with richer tag flow extraction | todo | left off (in_progress): graph/pin/property gameplay-tag flow extraction with `tagMetadata` context is implemented; validator now reads `tagMetadata` (with legacy `metadata` fallback); full regression confirmation is currently blocked by ShaderCompileWorker `dxil.dll` load failure during suite startup |
+| CR-007 | Function signatures | Populate explicit return type + richer typed parameter metadata | todo | left off (in_progress): return/object-path metadata now exported; needs wider corpus validation |
+| CR-008 | Networking semantics | Export RPC kind/reliability/validation + RepNotify linkage | todo | left off (in_progress): network/replication fields exported and validator now enforces shape gates (`variableReplicationShape`, `functionNetworkShape`); latest batch reports zero non-default RPC usage in current corpus |
+| CR-009 | Components | Extract real component hierarchy and actual default values | todo | left off (in_progress): parent/root/inherited metadata + default property extraction implemented |
+| CR-010 | Component deps | Populate component-level asset/class references | todo | left off (in_progress): component asset references now emitted; validate at scale |
+| CR-011 | Transition fidelity | Populate full transition fields (blend mode, priority, notify index, etc.) | todo | left off (in_progress): explicit transition fields now populated (`blendMode`, `priority`, `blendOutTriggerTime`, `notifyStateIndex`) and validated at `45/45` in latest batch; deeper event/edge-case semantics remain |
+| CR-012 | Notify fidelity | Populate track/event payload (`trackName`, `eventParameters`, etc.) | todo | left off (in_progress): notify extraction now populates `trackIndex`/`trackName`/`triggeredEventName` and derived `eventParameters`; broader runtime evidence awaits higher anim-asset/notify discovery coverage |
+| CR-013 | Curve fidelity | Add vector/transform/material/morph curve extraction where available | todo | left off (blocked): curve payload fields expanded and emitted (`curveAssetPath`, `interpolationMode`, `axisType`, `vectorValues`, `transformValues`, `affectedMaterials`, `affectedMorphTargets`); full-batch and project-wide curve audit still show float-only corpus (`sequencesWithTransformCurves=0`, `sequencesWithMaterialCurves=0`, `sequencesWithMorphCurves=0`) |
+| CR-014 | Dependency closure | Emit converter-facing dependency closure manifest (types/modules/includes) | todo | left off (in_progress): emits class/struct/enum/interface/asset/control-rig/module sets plus `includeHints` and `nativeIncludeHints`; include/module fidelity still needs deeper compile-loop tuning |
+| CR-015 | Tooling parity | Implement missing module entrypoints (`BP_SLZR.Serialize`, selected serialize, context generation) | todo | left off (done): wired module commands + implemented `GenerateLLMContext()` |
+| CR-016 | Validation gates | Automate converter-ready gate checks and publish pass/fail report per run | todo | left off (done): `BP_SLZR.ValidateConverterReady` emits per-run JSON report with gate-level pass/fail + coverage metrics and now de-duplicates reused export directories |
+| CR-017 | Legacy path cleanup | Replace/remove `AnalyzeNodeDetails` temporary stub path to avoid partial legacy behavior | todo | left off (done): removed disabled temporary stub implementation + declaration from analyzer; no runtime call sites remain |
+| CR-018 | Command surface consistency | Unify command entrypoints so all public commands use the same extraction/export pipeline | todo | left off (in_progress): major path now unified; legacy extractor command surface still exists |
+| CR-019 | Delegate model | Extract dispatcher declarations + delegate signature graphs as converter IR | todo | left off (in_progress): delegate signatures + delegate graph coverage now exported |
+| CR-020 | Timeline model | Extract `UTimelineTemplate` tracks/keys/events/length/loop settings (not only node name) | todo | left off (in_progress): timeline template/track/key metadata now exported |
+| CR-021 | Function locals | Extract function-local variable declarations/defaults/scopes from function entry metadata | todo | left off (in_progress): local variable declarations now exported |
+| CR-022 | Type fidelity | Export full variable type model (container kind, key/value type, object/class path) for member vars/functions | todo | left off (in_progress): added category/subcategory/object-path/container flags |
+| CR-023 | Class/component overrides | Export inheritable component overrides and class-level config flags relevant to generated C++ | todo | left off (in_progress): inheritable override metadata/delta fields plus class-level `classConfigFlags` now emitted; expand override-depth edge cases |
+| CR-024 | Class defaults | Export class default object (CDO) property delta for converter-visible gameplay settings | todo | left off (in_progress): `classDefaultValues` + `classDefaultValueDelta` now emitted; filtering/scope tuning still pending |
+| CR-025 | Symbol identity | Export fully-qualified paths for parent classes, interfaces, types, and callable owners | todo | left off (in_progress): class/interface/type paths now exported in primary schema |
+| CR-026 | Graph coverage | Include delegate/collapsed/other relevant editable graphs beyond Ubergraph/Function/Macro | todo | left off (in_progress): added delegate/event coverage and construction role tagging |
+| CR-027 | Override semantics | Export explicit override/parent-call semantics for events and overridden functions | todo | left off (in_progress): `bIsOverride`/`bCallsParent` + parent-call node metadata exported |
+| CR-028 | User type schemas | Export user-defined struct/enum schema details required for C++ type generation/mapping | todo | left off (in_progress): `userDefinedStructSchemas` / `userDefinedEnumSchemas` now emitted; richer defaults/metadata still pending |
+| CR-029 | Declaration specifiers | Export class/property/function specifier-level metadata needed for header generation parity | todo | left off (in_progress): class-level `classSpecifiers` plus variable/function `declarationSpecifiers` now emitted; deeper UHT parity still pending |
 
 ## Minor C++ parity gaps (polish)
 
@@ -299,14 +409,14 @@ These are smaller but still useful for high-confidence, low-friction conversion 
 
 | ID | Area | Task | Status | Notes |
 |---|---|---|---|---|
-| CR-030 | Blueprint metadata | Export `BlueprintNamespace`, imported namespaces, and additional class-level metadata used for symbol resolution | done | namespace/imported namespace fields are now emitted |
-| CR-031 | Construction role tagging | Explicitly tag/identify construction-script graph role in structured graph output | done | construction graphs tagged as `ConstructionScript` |
-| CR-032 | Determinism | Sort top-level analyzed Blueprint list and other non-semantic arrays for stable cross-run diffs | done | project asset list/export arrays now sorted for stable output |
-| CR-033 | Schema consistency | Normalize key casing/schema shapes where currently mixed (for example coverage object variants) | in_progress | canonical + alias coverage keys now emitted; full cleanup pending |
-| CR-034 | Model consolidation | Consolidate legacy vs active data model surfaces to prevent schema drift (e.g. duplicate type definitions) | todo | improves long-term maintainability and tooling correctness |
-| CR-035 | Compiler IR fallback | Export optional compiled-script/bytecode metadata for nodes that cannot be deterministically lowered from graph data alone | todo | enables safer handling of uncommon/custom node behavior |
-| CR-036 | Macro dependency fidelity | Explicitly resolve/link external macro instance dependencies for robust cross-blueprint conversion | todo | call-site metadata exists, but conversion pipeline needs guaranteed closure wiring |
-| CR-037 | Node support matrix | Emit per-export unsupported/partially-supported node report for converter gating and fail-fast behavior | done | `unsupportedNodeTypes`/`partiallySupportedNodeTypes` now emitted |
+| CR-030 | Blueprint metadata | Export `BlueprintNamespace`, imported namespaces, and additional class-level metadata used for symbol resolution | todo | left off (done): namespace/imported namespace fields are now emitted |
+| CR-031 | Construction role tagging | Explicitly tag/identify construction-script graph role in structured graph output | todo | left off (done): construction graphs tagged as `ConstructionScript` |
+| CR-032 | Determinism | Sort top-level analyzed Blueprint list and other non-semantic arrays for stable cross-run diffs | todo | left off (done): project asset list/export arrays now sorted for stable output |
+| CR-033 | Schema consistency | Normalize key casing/schema shapes where currently mixed (for example coverage object variants) | todo | left off (in_progress): canonical + alias coverage keys now emitted; full cleanup pending |
+| CR-034 | Model consolidation | Consolidate legacy vs active data model surfaces to prevent schema drift (e.g. duplicate type definitions) | todo | left off (todo): improves long-term maintainability and tooling correctness |
+| CR-035 | Compiler IR fallback | Export optional compiled-script/bytecode metadata for nodes that cannot be deterministically lowered from graph data alone | todo | left off (in_progress): exports now include `compilerIRFallback` (unsupported-node snapshot + bytecode-backed function manifest), and validator enforces `compilerIRFallbackShape`; latest full run shows `exportsWithCompilerIRFallbackShape=485`, `exportsWithBytecodeFallback=205`, `compilerIRFallbackBytecodeFunctionCountTotal=841`; deeper node-to-bytecode mapping remains pending |
+| CR-036 | Macro dependency fidelity | Explicitly resolve/link external macro instance dependencies for robust cross-blueprint conversion | todo | left off (in_progress): dependency closure now emits explicit `macroGraphPaths`/`macroBlueprintPaths` and validator enforces `macroDependencyClosureShape`; latest full run shows populated macro closure metrics (`exportsWithMacroGraphPaths=164`, `macroGraphPathsTotal=510`, `macroBlueprintPathsTotal=266`) |
+| CR-037 | Node support matrix | Emit per-export unsupported/partially-supported node report for converter gating and fail-fast behavior | todo | left off (done): `unsupportedNodeTypes`/`partiallySupportedNodeTypes` now emitted |
 
 ## Update protocol
 
@@ -340,3 +450,20 @@ For each completed task:
 - 2026-02-17: Populated ControlRig hierarchy-derived fields (`controls`, `bones`, feature maps, rig properties) and validated improved ControlRig payload coverage on `BP_SLZR_All_20260217_4` (`exportsWithControlRigs=3`, `controlRigsWithControls=1`, `controlRigsWithBones=3`).
 - 2026-02-17: Hardened `BP_SLZR.ValidateConverterReady` to de-duplicate repeated exports in reused batch directories via `blueprintPath` + latest `extractionTimestamp`; validated manifest-gate recovery on duplicated directory (`raw=970`, deduped `485`, `overallPass=true`; report `BP_SLZR_ValidationReport_20260217_145401.json`).
 - 2026-02-17: Added control-to-bone heuristic fallback mapping in ControlRig extraction and validated non-empty map coverage uplift on fresh batch `BP_SLZR_All_20260217_5` (`controlRigsWithControlToBoneMap=1/3`, sample `mappedControlCount=4` on `ABP_Mannequin_Base`).
+- 2026-02-17: Enriched transition extraction with explicit field population (`blendMode`, `priority`, `blendOutTriggerTime`, `notifyStateIndex`) and validated full observed transition coverage in `BP_SLZR_All_20260217_6` (`45/45` for each transition metric in report `BP_SLZR_ValidationReport_20260217_195321.json`).
+- 2026-02-17: Enriched notify extraction payload (`trackIndex`, `trackName`, `triggeredEventName`, derived `eventParameters`) and extended validator metrics to report notify/transition population; latest full batch still shows `animationNotifiesTotal=0` due anim-asset breadth limits.
+- 2026-02-18: Added AnimBP AssetRegistry dependency-harvest candidate seeding and re-ran full export/validation on `BP_SLZR_All_20260218_1`, raising animation breadth metrics to `animationAssetsTotal=409` and `animationNotifiesTotal=2960` with populated notify payload fields (`trackName`/`triggeredEventName`/`eventParameters` all `2960`).
+- 2026-02-18: Updated converter validation reporting with explicit animation transition/notify metric lines and verified transition field population remains fully covered (`45/45` for blend mode, priority, blend-out trigger, notify-state index) in the latest full batch report.
+- 2026-02-18: Expanded animation curve payload export and validator metrics (curve asset/interpolation/axis fields plus vector/transform/material/morph slots), then validated on `BP_SLZR_All_20260218_5` with `overallPass=true` and full observed float-curve coverage (`315/315` for curve asset/interpolation/axis fields; vector/transform/material/morph populations remain `0` in this corpus).
+- 2026-02-18: Added `BP_SLZR.AuditAnimationCurves` command and ran project-wide AnimSequence curve audit (`BP_SLZR_AnimCurveAudit_20260218_1.json`), confirming the corpus currently contains only float-curve instances (`sequencesWithTransformCurves=0`, `sequencesWithMaterialCurves=0`, `sequencesWithMorphCurves=0`) and no non-float candidate sequence paths.
+- 2026-02-18: Added AnimBP asset-coverage audit artifact for latest full export (`BP_SLZR_AnimBPAssetCoverage_20260218_1.json`) to identify remaining zero-asset AnimBPs (`12/23`) versus high-yield locomotion-layer AnimBPs (`66-69` assets each).
+- 2026-02-18: Completed CR-017 legacy cleanup by removing the disabled `AnalyzeNodeDetails` stub path from `BlueprintAnalyzer` (declaration + implementation), reducing dead legacy surface and preventing accidental fallback drift.
+- 2026-02-18: Added regression harness command `BP_SLZR.RunRegressionSuite` (export/validate/curve-audit orchestration) plus dedicated agent context/runbook/log docs (`AGENTS.md`, `REGRESSION_HARNESS.md`, `REGRESSION_LOG.md`) to standardize repeatable evidence-based validation for future AI sessions.
+- 2026-02-18: Verified `BP_SLZR.RunRegressionSuite` end-to-end on existing batch (`skipExport=true`) and recorded artifacts (`BP_SLZR_RegressionRun_20260218_123239.json`, `BP_SLZR_ValidationReport_20260218_123239.json`, `BP_SLZR_AnimCurveAudit_20260218_123239.json`) with `overallPass=true` in validation.
+- 2026-02-18: Added baseline-driven regression gates (`REGRESSION_BASELINE.json`) and upgraded `BP_SLZR.RunRegressionSuite` to emit explicit `suitePass`/`failures` by validating required gates and minimum metric floors against generated validation + curve-audit reports.
+- 2026-02-18: Added host-side regression launcher `Scripts/Run-RegressionSuite.ps1` with timeout/process-lifecycle control and verified end-to-end run artifacts (`BP_SLZR_RegressionRun_20260218_142155.json`) plus automatic `UnrealEditor-Cmd` shutdown after report detection.
+- 2026-02-18: Expanded converter validation with networking/replication shape gates (`variableReplicationShape`, `functionNetworkShape`) and metrics (`variablesWithReplicationShape`, `functionsWithNetworkShape`, RPC/rep-notify counts); baseline-gated regression rerun passed via wrapper (`BP_SLZR_RegressionRun_20260218_145951.json`, validation report `BP_SLZR_ValidationReport_20260218_145951.json`, `suitePass=true`).
+- 2026-02-18: Applied persistent priority mandate to docs and backlog flow: normalize all CXX/CR rows to `todo` with explicit "left off" context, and keep AI-first C++ conversion fidelity as primary over editor-heavy animation authoring tasks.
+- 2026-02-18: Expanded dependency closure with explicit macro linkage fields (`macroGraphPaths`, `macroBlueprintPaths`) plus validator gate/metrics (`macroDependencyClosureShape`), then validated on fresh full export batch `BP_SLZR_All_20260218_7` (`exportsWithMacroGraphPaths=164`, `macroGraphPathsTotal=510`, `macroBlueprintPathsTotal=266`, report `BP_SLZR_ValidationReport_20260218_165309.json`).
+- 2026-02-18: Added `compilerIRFallback` export payload (unsupported-node snapshot + bytecode-backed function manifest) and validator gate/metrics (`compilerIRFallbackShape`), then validated on `BP_SLZR_All_20260218_7` (`exportsWithCompilerIRFallbackShape=485`, `exportsWithBytecodeFallback=205`, `compilerIRFallbackBytecodeFunctionCountTotal=841`, report `BP_SLZR_ValidationReport_20260218_165309.json`).
+- 2026-02-18: Aligned gameplay-tag validation metrics to the export key `tagMetadata` (with backward-compatible legacy `metadata` fallback) in `BlueprintExtractorCommands`; attempted wrapper-based rerun is currently blocked by ShaderCompileWorker failure (`Failed to load module .../ShaderConductor/Win64/dxil.dll`) before suite-report emission (see `Saved/Logs/LyraStarterGame.log`).

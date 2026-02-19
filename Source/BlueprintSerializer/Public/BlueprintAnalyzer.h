@@ -1194,11 +1194,6 @@ private:
 	static TArray<FString> ExtractImplementedInterfaces(UBlueprint* Blueprint);
 	
 	/**
-	 * Analyze individual graph nodes and extract their properties
-	 */
-	static FString AnalyzeNodeDetails(UK2Node* Node);
-	
-	/**
 	 * Analyze node with complete pin connections and execution flow (legacy)
 	 */
 	static FString AnalyzeNodeWithConnections(UEdGraphNode* Node);
