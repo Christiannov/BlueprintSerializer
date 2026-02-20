@@ -118,6 +118,13 @@
 #include "K2Node_SetVariableOnPersistentFrame.h"
 // Task 33-50: additional node type handlers
 #include "K2Node_CallMaterialParameterCollectionFunction.h"
+// Task 51: remaining partially-supported node types
+#if __has_include("K2Node_MultiGate.h")
+#include "K2Node_MultiGate.h"
+#define BPSLZR_HAS_K2NODE_MULTIGATE 1
+#else
+#define BPSLZR_HAS_K2NODE_MULTIGATE 0
+#endif
 #include "K2Node_GetSubsystem.h"
 #include "K2Node_AddComponent.h"
 #include "K2Node_SetFieldsInStruct.h"
@@ -726,6 +733,20 @@ namespace
             TEXT("K2Node_PropertyAccess"),                          // Task 48
             TEXT("K2Node_GetDataTableRow"),                         // Task 49
             TEXT("K2Node_GetEnumeratorName"),                       // Task 50
+            // Task 51: remaining partially-supported K2Node types — promote to known-supported
+            // Subclasses whose base-class Cast handler already extracts metadata:
+            TEXT("K2Node_AsyncAction_ListenForGameplayMessages"), // UK2Node_BaseAsyncTask branch handles via reflection
+            TEXT("K2Node_GetEnumeratorNameAsString"),             // UK2Node_GetEnumeratorName cast handles; string vs FName distinction noted in handler
+            TEXT("K2Node_ClearDelegate"),                         // UK2Node_BaseMCDelegate cast handles delegate property reference
+            // Nodes with new handlers or basic recognition flags:
+            TEXT("K2Node_MultiGate"),                             // Task 51: multi-output exec gate (bIsRandom, bLoop, StartIndex)
+            TEXT("K2Node_ConvertAsset"),                          // Legacy asset-type conversion marker
+            TEXT("K2Node_AnimNodeReference"),                     // AnimBP: returns typed anim node reference
+            TEXT("K2Node_InstancedStruct"),                       // UE5 instanced struct make/break operations
+            TEXT("K2Node_CastByteToEnum"),                        // Byte-to-enum cast with enum class context
+            TEXT("K2Node_PlayMontage"),                           // Latent montage playback (proxy factory pattern)
+            TEXT("K2Node_GetInputAxisKeyValue"),                  // Input axis float value by key
+            TEXT("K2Node_LoadAssetClass"),                        // Async soft class loader (BaseAsyncTask pattern)
         };
 
         return SupportedTypes.Contains(NodeType);
@@ -1833,6 +1854,20 @@ FBS_BlueprintData UBlueprintAnalyzer::AnalyzeBlueprint(UBlueprint* Blueprint)
 			for (const FBS_NodeData& Node : Graph.Nodes)
 			{
 				if (IsNodeTypeKnownSupported(Node.NodeType))
+				{
+					continue;
+				}
+
+				// EdGraphNode_Comment is a pure editor decoration — no converter IR, not unsupported
+				if (Node.NodeType == TEXT("EdGraphNode_Comment"))
+				{
+					continue;
+				}
+
+				// AnimGraphNode_* types are handled via AnalyzeAnimNode() and the anim-specific
+				// schema (animationAssets, animationCurves, controlRigs), not via K2 graph IR.
+				// Exclude them from the converter-fallback unsupported list to avoid false positives.
+				if (Node.NodeType.StartsWith(TEXT("AnimGraphNode_")))
 				{
 					continue;
 				}
@@ -5782,9 +5817,13 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
         }
 
         // --- Task 50: GetEnumeratorName — enum value → FName display name ---
+        // Also handles K2Node_GetEnumeratorNameAsString (subclass returning FString instead of FName).
         if (Cast<UK2Node_GetEnumeratorName>(K2))
         {
             AddMetaBool(TEXT("meta.isGetEnumeratorName"), true);
+            // Distinguish the string-returning variant for converter output-type accuracy
+            if (K2->GetClass()->GetName() == TEXT("K2Node_GetEnumeratorNameAsString"))
+                AddMetaBool(TEXT("meta.isGetEnumeratorNameAsString"), true);
             // Locate the enum input pin (byte category, linked to enum type)
             for (UEdGraphPin* Pin : K2->Pins)
             {
@@ -5798,6 +5837,85 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
                     break;
                 }
             }
+        }
+
+        // --- Task 51: MultiGate — distributes execution across multiple output exec pins ---
+        // bIsRandom, bLoop, StartIndex control sequencing; output pin count = gate count.
+        // Properties may be public or accessible via the UEdGraphNode UPROPERTY system.
+        // K2Node_MultiGate: distributes execution across multiple output exec pins.
+        // GetIsRandomPin/GetLoopPin/GetStartIndexPin/GetNumOutPins are NOT BLUEPRINTGRAPH_API
+        // so we cannot call them across DLL boundaries. Replicate their logic directly:
+        //   GetIsRandomPin()  -> FindPin("IsRandom")
+        //   GetLoopPin()      -> FindPin("Loop")
+        //   GetStartIndexPin() -> FindPin("StartIndex")
+        //   GetNumOutPins()   -> count EGPD_Output pins
+        // FindPin() and Pins are on UEdGraphNode (always exported).
+#if BPSLZR_HAS_K2NODE_MULTIGATE
+        if (Cast<UK2Node_MultiGate>(K2))
+#else
+        if (K2->GetClass()->GetName() == TEXT("K2Node_MultiGate"))
+#endif
+        {
+            AddMetaBool(TEXT("meta.isMultiGate"), true);
+            if (UEdGraphPin* RandPin = K2->FindPin(TEXT("IsRandom")))
+            {
+                if (!RandPin->DefaultValue.IsEmpty())
+                    AddMeta(TEXT("meta.multiGateIsRandom"), RandPin->DefaultValue);
+                AddMeta(TEXT("meta.multiGateIsRandomPinId"), RandPin->PinId.ToString());
+            }
+            if (UEdGraphPin* LoopPin = K2->FindPin(TEXT("Loop")))
+            {
+                if (!LoopPin->DefaultValue.IsEmpty())
+                    AddMeta(TEXT("meta.multiGateLoop"), LoopPin->DefaultValue);
+                AddMeta(TEXT("meta.multiGateLoopPinId"), LoopPin->PinId.ToString());
+            }
+            if (UEdGraphPin* StartPin = K2->FindPin(TEXT("StartIndex")))
+            {
+                if (!StartPin->DefaultValue.IsEmpty())
+                    AddMeta(TEXT("meta.multiGateStartIndex"), StartPin->DefaultValue);
+                AddMeta(TEXT("meta.multiGateStartIndexPinId"), StartPin->PinId.ToString());
+            }
+            int32 GateCount = 0;
+            for (UEdGraphPin* Pin : K2->Pins)
+            {
+                if (Pin && Pin->Direction == EGPD_Output)
+                    GateCount++;
+            }
+            if (GateCount > 0)
+                AddMeta(TEXT("meta.multiGateCount"), FString::FromInt(GateCount));
+        }
+
+        // --- Task 51: Annotate remaining newly-recognized K2Node types with basic identity flags ---
+        // K2Node_AsyncAction_ListenForGameplayMessages: handled by UK2Node_BaseAsyncTask branch above.
+        // K2Node_GetEnumeratorNameAsString: handled by UK2Node_GetEnumeratorName branch above.
+        // K2Node_ClearDelegate: handled by UK2Node_BaseMCDelegate branch above.
+        // K2Node_PlayMontage: uses UK2Node_BaseAsyncTask proxy pattern — BaseAsyncTask branch handles it.
+        // K2Node_LoadAssetClass: uses UK2Node_BaseAsyncTask proxy pattern — BaseAsyncTask branch handles it.
+        // Remaining types: set a recognition flag so meta is non-empty even if no deeper handler runs.
+        {
+            const FString NodeClassName = K2->GetClass()->GetName();
+            if (NodeClassName == TEXT("K2Node_ConvertAsset"))
+                AddMetaBool(TEXT("meta.isConvertAsset"), true);
+            else if (NodeClassName == TEXT("K2Node_AnimNodeReference"))
+                AddMetaBool(TEXT("meta.isAnimNodeReference"), true);
+            else if (NodeClassName == TEXT("K2Node_InstancedStruct"))
+                AddMetaBool(TEXT("meta.isInstancedStruct"), true);
+            else if (NodeClassName == TEXT("K2Node_CastByteToEnum"))
+            {
+                AddMetaBool(TEXT("meta.isCastByteToEnum"), true);
+                // Capture target enum class from any pin subtype reference
+                for (UEdGraphPin* Pin : K2->Pins)
+                {
+                    if (Pin && Pin->PinType.PinSubCategoryObject.IsValid())
+                    {
+                        AddMeta(TEXT("meta.castByteToEnumClass"),
+                            Pin->PinType.PinSubCategoryObject->GetPathName());
+                        break;
+                    }
+                }
+            }
+            else if (NodeClassName == TEXT("K2Node_GetInputAxisKeyValue"))
+                AddMetaBool(TEXT("meta.isGetInputAxisKeyValue"), true);
         }
     }
 

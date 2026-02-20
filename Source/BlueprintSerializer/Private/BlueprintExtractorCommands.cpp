@@ -1497,6 +1497,9 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     int32 NodesWithPropertyAccess = 0;
     int32 NodesWithGetDataTableRow = 0;
     int32 NodesWithGetEnumeratorName = 0;
+    // Task 51: new node type counters
+    int32 NodesWithMultiGate = 0;
+    int32 NodesWithListenForGameplayMessages = 0;
 
     const int32 RawBlueprintFileCount = BlueprintFileNames.Num();
     TMap<FString, FString> SelectedFileByBlueprintPath;
@@ -2296,6 +2299,18 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
                     if (NodeProps->HasField(TEXT("meta.isPropertyAccess")))       NodesWithPropertyAccess++;
                     if (NodeProps->HasField(TEXT("meta.isGetDataTableRow")))      NodesWithGetDataTableRow++;
                     if (NodeProps->HasField(TEXT("meta.isGetEnumeratorName")))    NodesWithGetEnumeratorName++;
+                    // Task 51: new node type counters
+                    if (NodeProps->HasField(TEXT("meta.isMultiGate")))            NodesWithMultiGate++;
+                    if (NodeProps->HasField(TEXT("meta.isAsyncAction")) &&
+                        NodeProps->HasField(TEXT("meta.proxyClass")))
+                    {
+                        // K2Node_AsyncAction_ListenForGameplayMessages: AsyncAction subclass with
+                        // proxy class path containing "ListenForGameplayMessages"
+                        FString ProxyClass;
+                        if (NodeProps->TryGetStringField(TEXT("meta.proxyClass"), ProxyClass) &&
+                            ProxyClass.Contains(TEXT("ListenForGameplayMessages")))
+                            NodesWithListenForGameplayMessages++;
+                    }
                 }
             }
         }
@@ -2524,6 +2539,9 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     Metrics->SetNumberField(TEXT("nodesWithPropertyAccess"),      NodesWithPropertyAccess);
     Metrics->SetNumberField(TEXT("nodesWithGetDataTableRow"),     NodesWithGetDataTableRow);
     Metrics->SetNumberField(TEXT("nodesWithGetEnumeratorName"),   NodesWithGetEnumeratorName);
+    // Task 51: new node type metrics
+    Metrics->SetNumberField(TEXT("nodesWithMultiGate"),                     NodesWithMultiGate);
+    Metrics->SetNumberField(TEXT("nodesWithListenForGameplayMessages"),      NodesWithListenForGameplayMessages);
     Report->SetObjectField(TEXT("metrics"), Metrics);
 
     Report->SetArrayField(TEXT("missingTopLevelKeys"), [&MissingTopLevelKeys]()

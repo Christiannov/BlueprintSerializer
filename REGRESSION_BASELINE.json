@@ -65,7 +65,8 @@
     "nodesWithTemporaryVariable": 21,
     "nodesWithPropertyAccess": 85,
     "nodesWithGetDataTableRow": 2,
-    "nodesWithGetEnumeratorName": 4
+    "nodesWithGetEnumeratorName": 4,
+    "nodesWithMultiGate": 1
   },
   "curveAuditMinMetrics": {
     "animSequenceAssetsTotal": 584,

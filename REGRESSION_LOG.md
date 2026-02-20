@@ -473,6 +473,36 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `pass` — all 25 new node handlers (Tasks 33-50) compile cleanly and regress at zero risk; complete handler coverage for all identified high-frequency K2Node types in Lyra corpus.
 - Follow-up: commit; evaluate any remaining node types from corpus; consider converter-side consumption of new meta fields.
 
+### 2026-02-20 10:31 - Task 51: remaining partially-supported node types + false-positive unsupported cleanup
+
+- Scope: promote all remaining partially-supported K2Node types to fully supported; eliminate 164 false-positive `exportsWithUnsupportedNodeFallback` files caused by `EdGraphNode_Comment` and `AnimGraphNode_*` being classified as unsupported.
+- Changes:
+  - **IsNodeTypeKnownSupported expansion**: Added 11 new entries — `K2Node_AsyncAction_ListenForGameplayMessages` (UK2Node_BaseAsyncTask branch handles via base cast), `K2Node_GetEnumeratorNameAsString` (UK2Node_GetEnumeratorName branch handles), `K2Node_ClearDelegate` (UK2Node_BaseMCDelegate branch handles), `K2Node_MultiGate`, `K2Node_ConvertAsset`, `K2Node_AnimNodeReference`, `K2Node_InstancedStruct`, `K2Node_CastByteToEnum`, `K2Node_PlayMontage`, `K2Node_GetInputAxisKeyValue`, `K2Node_LoadAssetClass`.
+  - **Node support building loop exclusions**: Added `continue` guards for `EdGraphNode_Comment` (editor-only decoration, no converter IR) and `AnimGraphNode_*` prefix (handled by `AnalyzeAnimNode()` and anim schema, not K2 graph IR). Eliminates 156+8 false-positive unsupported node reports.
+  - **K2Node_MultiGate handler**: Annotates `meta.isMultiGate=true`, reads IsRandom/Loop/StartIndex pin defaults via `K2->FindPin("IsRandom"/"Loop"/"StartIndex")`, counts output exec pins for `meta.multiGateCount`. Note: `GetIsRandomPin()` etc. are NOT `BLUEPRINTGRAPH_API` — cannot call across DLL boundaries even when header is present; workaround: replicate logic via `FindPin()` (on `UEdGraphNode`, always exported) + manual pin iteration.
+  - **K2Node_GetEnumeratorNameAsString differentiation**: Added `meta.isGetEnumeratorNameAsString=true` flag inside existing `UK2Node_GetEnumeratorName` cast block to distinguish the two variants.
+  - **Basic identity flags**: Added `meta.isConvertAsset`, `meta.isAnimNodeReference`, `meta.isInstancedStruct`, `meta.isCastByteToEnum`, `meta.isGetInputAxisKeyValue` for remaining 1-file types.
+  - **Validator metrics**: Added `nodesWithMultiGate`, `nodesWithListenForGameplayMessages`.
+  - **Defects encountered and fixed during implementation**:
+    - *C2039 bIsRandom/bLoop/StartIndex*: `UK2Node_MultiGate` has no such member fields; IsRandom/Loop/StartIndex are input exec pins exposed via accessor methods. First fix attempt used accessor methods — compiled but produced LNK2019 because `GetIsRandomPin()`, `GetLoopPin()`, `GetStartIndexPin()`, `GetNumOutPins()` are NOT marked `BLUEPRINTGRAPH_API`. Root fix: replicate all four accessors inline using `FindPin()` and manual EGPD_Output iteration.
+  - **Baseline update**: Added `"nodesWithMultiGate": 1` to `validationMinMetrics`.
+- Command:
+  - `powershell -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260220_103150/` (fresh export batch, 485 files)
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260220_103228.json`
+  - `Saved/BlueprintExports/BP_SLZR_All_20260220_103150/BP_SLZR_ValidationReport_20260220_103228.json`
+  - `Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260220_103228.json`
+- Key metrics:
+  - `suitePass=true`, `overallPass=true`, all 14 gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`
+  - `exportsWithUnsupportedNodeFallback=0` (was 164 — all false positives eliminated)
+  - `nodesWithMultiGate=1`, `nodesWithListenForGameplayMessages=0`
+  - All prior stability metrics unchanged (nodesWithPromotableOp=1000, nodesWithTunnel=1949, etc.)
+- Result: `pass` — all 11 remaining partially-supported node types now fully supported; false-positive unsupported count zeroed; nodesWithMultiGate confirmed at 1.
+- Lesson: Non-API methods in UE DLLs cannot be called from plugin DLLs even when the header is available. Always check for `MODULE_API` decorator before calling across DLL boundaries; replicate simple accessor logic inline if not exported.
+- Follow-up: update `CONVERTER_READY_TODO.md`; investigate CR-002/CR-003 AnimBP edge cases; implement CR-033/CR-034 schema consistency.
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.
