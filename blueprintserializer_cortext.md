@@ -11,10 +11,9 @@
 BlueprintSerializer is an Unreal Engine 5 editor plugin that serializes Blueprint assets to structured JSON for AI-assisted C++ conversion workflows. Its primary mandate is **C++ conversion fidelity** — producing JSON that contains every piece of information a converter needs to generate correct, idiomatic C++ from a Blueprint class.
 
 **Plugin location:** `Plugins/BlueprintSerializer/`
-**Canonical scope docs:** `FULL_EXTRACTION_DEFINITION.md`, `CONVERTER_READY_EXTRACTION_SPEC.md`
-**Live work tracker:** `CONVERTER_READY_TODO.md`
-**Regression history:** `REGRESSION_LOG.md`
+**Live work queue:** `gh issue list --repo Jinphinity/BlueprintSerializer --label implementation`
 **Regression baseline:** `REGRESSION_BASELINE.json`
+**Historical archive:** `ARCHIVE.md` (read-only; replaces CONVERTER_READY_TODO.md, REGRESSION_LOG.md, and spec docs)
 
 ---
 
@@ -84,13 +83,14 @@ powershell -Command "& 'C:\\Program Files\\Epic Games\\UE_5.6\\Engine\\Build\\Ba
    Saved/BlueprintExports/BP_SLZR_All_<timestamp>/BP_SLZR_ValidationReport_<timestamp>.json
    Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_<timestamp>.json
 5. Update REGRESSION_BASELINE.json if new metrics were added
-6. Append an entry to REGRESSION_LOG.md
+6. Close GitHub Issue with metric evidence: `gh issue close <N> --repo Jinphinity/BlueprintSerializer --comment "..."`
 7. Commit plugin + superproject
 ```
 
 **Never claim success from shell exit code alone.** Always verify `suitePass=True` in the JSON artifact.
+**Never close a GitHub Issue without corpus evidence from a passing regression run.**
 
-See `REGRESSION_HARNESS.md` for full harness documentation.
+Harness internals are documented in `ARCHIVE.md` (Part 5).
 
 ---
 
@@ -104,8 +104,7 @@ See `REGRESSION_HARNESS.md` for full harness documentation.
 | `Source/BlueprintSerializer/BlueprintSerializer.Build.cs` | Module dependencies — add new external module headers here |
 | `Scripts/Run-RegressionSuite.ps1` | Host-side regression harness (launches UE, waits, closes, reports) |
 | `REGRESSION_BASELINE.json` | Minimum metric thresholds — gates that must pass every run |
-| `REGRESSION_LOG.md` | Chronological run history with metrics and lessons |
-| `CONVERTER_READY_TODO.md` | Live backlog of remaining C++ conversion fidelity work |
+| `ARCHIVE.md` | Read-only historical record (replaces REGRESSION_LOG.md, CONVERTER_READY_TODO.md, spec docs) |
 
 ---
 
@@ -159,7 +158,7 @@ Edit `BlueprintSerializer.Build.cs` → `PrivateDependencyModuleNames`. Then reb
 
 485 Blueprint files, 0 parse errors, 14 validation gates (all must pass).
 
-Key corpus counts as of 2026-02-20:
+Key corpus counts as of 2026-02-20 (run BP_SLZR_RegressionRun_20260220_103228):
 - `nodesWithTunnel`: 1949
 - `nodesWithPromotableOp`: 1000
 - `nodesWithBranch`: 1054, `nodesWithReroute`: 2949
@@ -168,7 +167,9 @@ Key corpus counts as of 2026-02-20:
 - `nodesWithGetArrayItem`: 209, `nodesWithAddComponent`: 199
 - `nodesWithPropertyAccess`: 85, `nodesWithBaseAsyncTask`: 73
 - `nodesWithGetSubsystem`: 72, `nodesWithMakeArray`: 71
+- `nodesWithMultiGate`: 1
 - `variablesTotal`: 3133, `functionsTotal`: 936, `componentsTotal`: 818
+- `exportsWithUnsupportedNodeFallback`: 0 (was 164 before Task 51)
 
 See `REGRESSION_BASELINE.json` for the full and authoritative list.
 
@@ -180,7 +181,7 @@ See `REGRESSION_BASELINE.json` for the full and authoritative list.
 2. **Regression gate coverage** — new gates for newly emitted fields
 3. **Animation/editor-heavy work** — human-led; automation assists but does not lead
 
-Persistent mandate: keep `CONVERTER_READY_TODO.md` in normalized backlog mode so new AI sessions inherit priority framing without rereading the full log.
+Work queue is tracked in GitHub Issues. Use `gh issue list --repo Jinphinity/BlueprintSerializer --label implementation --state open` to find active items. Historical context is in `ARCHIVE.md`.
 
 ---
 
@@ -194,4 +195,4 @@ Persistent mandate: keep `CONVERTER_READY_TODO.md` in normalized backlog mode so
 
 ---
 
-*Last updated: 2026-02-20. Update this file whenever architectural patterns, module deps, or build procedures change.*
+*Last updated: 2026-02-20 (git-first migration). Update this file whenever architectural patterns, module deps, or build procedures change.*

@@ -13,12 +13,31 @@
 ## Canonical References (read in this order)
 
 1. **`blueprintserializer_cortext.md`** ← universal context, always first
-2. `CONVERTER_READY_TODO.md` — live backlog
-3. `REGRESSION_LOG.md` — run history and lessons
-4. `REGRESSION_BASELINE.json` — current metric thresholds
-5. `REGRESSION_HARNESS.md` — harness internals
-6. `FULL_EXTRACTION_DEFINITION.md` — complete extraction spec
-7. `CONVERTER_READY_EXTRACTION_SPEC.md` — converter-ready scope
+2. **`gh issue list --repo Jinphinity/BlueprintSerializer --label implementation`** ← live work queue
+3. **`git log --oneline -20`** ← recent changelog
+4. `REGRESSION_BASELINE.json` — metric thresholds (machine-readable)
+5. `ARCHIVE.md` — historical work item and run history (read-only reference)
+
+---
+
+## Work Discovery
+
+- **Open issues with label `implementation`** = active code work items → close when code is done + regression passes
+- **Open issues with label `validation`** = implemented, need verification against export batch → close with metric evidence
+- **Closed issues with label `corpus-blocked`** = not reopenable without new corpus evidence
+- **Closed issues with label `implementation` or `validation`** = done; see commit linked in close comment
+- **NEVER reopen a `corpus-blocked` issue without new corpus evidence**
+
+```bash
+# Find your next task
+gh issue list --repo Jinphinity/BlueprintSerializer --label implementation --state open
+
+# Find items to validate and close
+gh issue list --repo Jinphinity/BlueprintSerializer --label validation --state open
+
+# Check overall progress
+gh issue list --repo Jinphinity/BlueprintSerializer --state open
+```
 
 ---
 
@@ -30,8 +49,8 @@
 4. Run regression suite: `powershell -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
 5. Confirm `suitePass=True` in the JSON artifact — not from shell exit code
 6. Update `REGRESSION_BASELINE.json` if new metrics were added
-7. Append entry to `REGRESSION_LOG.md`
-8. Commit plugin + superproject with descriptive message
+7. Close the GitHub Issue with metric evidence in the comment
+8. Commit plugin + superproject with descriptive message referencing the issue number
 
 ---
 
@@ -40,7 +59,7 @@
 - Do not claim success unless artifact files exist and contain expected metrics
 - `suitePass=True` in `BP_SLZR_RegressionRun_<timestamp>.json` is the only valid success signal
 - Treat Unreal command timeouts as inconclusive; confirm via log and report JSON files
-- Never mark a task `done` without corpus evidence from a passing regression run
+- Never close a GitHub Issue without corpus evidence from a passing regression run
 
 ---
 
@@ -49,4 +68,8 @@
 - **Primary:** C++ conversion fidelity — extraction completeness, node meta enrichment, dependency closure
 - **Secondary:** Editor-heavy animation authoring — human-led, automation assists only
 
-Keep `CONVERTER_READY_TODO.md` in normalized backlog mode so new sessions inherit priority without rereading the full log.
+---
+
+## Changelog
+
+All work history is in `git log`. All historical work item tables and regression run logs are in `ARCHIVE.md`.
