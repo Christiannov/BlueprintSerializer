@@ -523,6 +523,21 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `pass`
 - Follow-up: note CR-034 (schema drift) as documentation-only maintenance item; proceed to CR-002/CR-003 AnimBP edge cases.
 
+### 2026-02-20 (doc) - CR-002/CR-003 AnimBP edge case corpus analysis
+
+- Scope: investigate remaining AnimBP edge cases — 1 unpopulated variable default (CR-002) and 12 zero-asset AnimBPs (CR-003).
+- Method: Python scan of `BP_SLZR_All_20260220_104347/` export batch (485 files).
+- CR-002 findings:
+  - 118 total AnimBP variables; 1 has empty `defaultValue`: `ABP_ItemAnimLayersBase::Idle_Breaks` (`Array<AnimSequence>`)
+  - Empty string is the correct representation — Blueprint author intentionally left the array empty for editor population
+  - Not an extraction gap; no code change needed
+- CR-003 findings:
+  - 12/23 zero-asset AnimBPs are all intentional: 3 wrapper/retarget, 3 weapon pure-anim graph, 2 post-process layer, 2 external-source/tutorial, 1 abstract interface, 1 top-down variant
+  - Discovery logic is correct; these AnimBPs genuinely own no assets by design
+  - Not an extraction gap; no code change needed
+- Result: `blocked` (both) — corpus does not contain edge cases warranting code changes
+- Follow-up: none; both statuses set to `blocked` in `CONVERTER_READY_TODO.md`.
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.
