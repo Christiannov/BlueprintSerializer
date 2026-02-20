@@ -1248,6 +1248,93 @@ namespace
             return FString();
         }
 
+        // CR-014: Static lookup table for well-known UE/Lyra/plugin classes whose
+        // ModuleRelativePath metadata may be absent or generic at runtime.
+        // Key = "/Script/Module.ClassName", value = precise include path.
+        static const TMap<FString, FString> KnownIncludeHints = {
+            // Engine — GameFramework
+            { TEXT("/Script/Engine.Actor"),                          TEXT("GameFramework/Actor.h") },
+            { TEXT("/Script/Engine.Pawn"),                           TEXT("GameFramework/Pawn.h") },
+            { TEXT("/Script/Engine.Character"),                      TEXT("GameFramework/Character.h") },
+            { TEXT("/Script/Engine.PlayerController"),               TEXT("GameFramework/PlayerController.h") },
+            { TEXT("/Script/Engine.GameMode"),                       TEXT("GameFramework/GameMode.h") },
+            { TEXT("/Script/Engine.GameModeBase"),                   TEXT("GameFramework/GameModeBase.h") },
+            { TEXT("/Script/Engine.GameState"),                      TEXT("GameFramework/GameState.h") },
+            { TEXT("/Script/Engine.GameStateBase"),                  TEXT("GameFramework/GameStateBase.h") },
+            { TEXT("/Script/Engine.PlayerState"),                    TEXT("GameFramework/PlayerState.h") },
+            { TEXT("/Script/Engine.HUD"),                            TEXT("GameFramework/HUD.h") },
+            { TEXT("/Script/Engine.GameInstance"),                   TEXT("Engine/GameInstance.h") },
+            { TEXT("/Script/Engine.CharacterMovementComponent"),     TEXT("GameFramework/CharacterMovementComponent.h") },
+            { TEXT("/Script/Engine.FloatingPawnMovement"),           TEXT("GameFramework/FloatingPawnMovement.h") },
+            // Engine — Components
+            { TEXT("/Script/Engine.ActorComponent"),                 TEXT("Components/ActorComponent.h") },
+            { TEXT("/Script/Engine.SceneComponent"),                 TEXT("Components/SceneComponent.h") },
+            { TEXT("/Script/Engine.StaticMeshComponent"),            TEXT("Components/StaticMeshComponent.h") },
+            { TEXT("/Script/Engine.SkeletalMeshComponent"),          TEXT("Components/SkeletalMeshComponent.h") },
+            { TEXT("/Script/Engine.PrimitiveComponent"),             TEXT("Components/PrimitiveComponent.h") },
+            { TEXT("/Script/Engine.MeshComponent"),                  TEXT("Components/MeshComponent.h") },
+            { TEXT("/Script/Engine.CapsuleComponent"),               TEXT("Components/CapsuleComponent.h") },
+            { TEXT("/Script/Engine.SphereComponent"),                TEXT("Components/SphereComponent.h") },
+            { TEXT("/Script/Engine.BoxComponent"),                   TEXT("Components/BoxComponent.h") },
+            { TEXT("/Script/Engine.AudioComponent"),                 TEXT("Components/AudioComponent.h") },
+            { TEXT("/Script/Engine.SpotLightComponent"),             TEXT("Components/SpotLightComponent.h") },
+            { TEXT("/Script/Engine.PointLightComponent"),            TEXT("Components/PointLightComponent.h") },
+            { TEXT("/Script/Engine.DirectionalLightComponent"),      TEXT("Components/DirectionalLightComponent.h") },
+            { TEXT("/Script/Engine.LightComponent"),                 TEXT("Components/LightComponent.h") },
+            { TEXT("/Script/Engine.ArrowComponent"),                 TEXT("Components/ArrowComponent.h") },
+            { TEXT("/Script/Engine.TimelineComponent"),              TEXT("Components/TimelineComponent.h") },
+            { TEXT("/Script/Engine.WidgetComponent"),                TEXT("Components/WidgetComponent.h") },
+            // Engine — Core
+            { TEXT("/Script/Engine.World"),                          TEXT("Engine/World.h") },
+            { TEXT("/Script/Engine.Level"),                          TEXT("Engine/Level.h") },
+            { TEXT("/Script/Engine.Engine"),                         TEXT("Engine/Engine.h") },
+            { TEXT("/Script/Engine.Texture2D"),                      TEXT("Engine/Texture2D.h") },
+            { TEXT("/Script/Engine.StaticMesh"),                     TEXT("Engine/StaticMesh.h") },
+            { TEXT("/Script/Engine.SkeletalMesh"),                   TEXT("Engine/SkeletalMesh.h") },
+            { TEXT("/Script/Engine.AnimSequence"),                   TEXT("Animation/AnimSequence.h") },
+            { TEXT("/Script/Engine.AnimBlueprint"),                  TEXT("Animation/AnimBlueprint.h") },
+            { TEXT("/Script/Engine.AnimInstance"),                   TEXT("Animation/AnimInstance.h") },
+            { TEXT("/Script/Engine.AnimMontage"),                    TEXT("Animation/AnimMontage.h") },
+            { TEXT("/Script/Engine.DataTable"),                      TEXT("Engine/DataTable.h") },
+            { TEXT("/Script/Engine.DataAsset"),                      TEXT("Engine/DataAsset.h") },
+            { TEXT("/Script/Engine.CurveFloat"),                     TEXT("Curves/CurveFloat.h") },
+            { TEXT("/Script/Engine.PhysicsAsset"),                   TEXT("PhysicsEngine/PhysicsAsset.h") },
+            { TEXT("/Script/Engine.UserDefinedEnum"),                TEXT("Engine/UserDefinedEnum.h") },
+            // GameplayAbilities
+            { TEXT("/Script/GameplayAbilities.AbilitySystemComponent"),     TEXT("AbilitySystemComponent.h") },
+            { TEXT("/Script/GameplayAbilities.GameplayAbility"),            TEXT("Abilities/GameplayAbility.h") },
+            { TEXT("/Script/GameplayAbilities.GameplayEffect"),             TEXT("GameplayEffect.h") },
+            { TEXT("/Script/GameplayAbilities.AttributeSet"),               TEXT("AttributeSet.h") },
+            { TEXT("/Script/GameplayAbilities.AbilitySystemGlobals"),       TEXT("AbilitySystemGlobals.h") },
+            { TEXT("/Script/GameplayAbilities.GameplayAbilitySpec"),        TEXT("GameplayAbilitySpec.h") },
+            // EnhancedInput
+            { TEXT("/Script/EnhancedInput.InputAction"),                    TEXT("InputAction.h") },
+            { TEXT("/Script/EnhancedInput.InputMappingContext"),            TEXT("InputMappingContext.h") },
+            { TEXT("/Script/EnhancedInput.EnhancedInputComponent"),        TEXT("EnhancedInputComponent.h") },
+            { TEXT("/Script/EnhancedInput.EnhancedPlayerInput"),           TEXT("EnhancedPlayerInput.h") },
+            // CommonUI
+            { TEXT("/Script/CommonUI.CommonUserWidget"),                    TEXT("CommonUserWidget.h") },
+            { TEXT("/Script/CommonUI.CommonActivatableWidget"),             TEXT("CommonActivatableWidget.h") },
+            { TEXT("/Script/CommonUI.CommonButtonBase"),                    TEXT("CommonButtonBase.h") },
+            // GameFeatures
+            { TEXT("/Script/GameFeatures.GameFeatureAction"),               TEXT("GameFeatureAction.h") },
+            { TEXT("/Script/GameFeatures.GameFeaturesSubsystem"),           TEXT("GameFeaturesSubsystem.h") },
+        };
+
+        if (const FString* KnownHint = KnownIncludeHints.Find(ScriptPath))
+        {
+            return *KnownHint;
+        }
+
+        // CR-014: LyraGame module — all classes live under LyraGame/ prefix
+        if (ModuleName.Equals(TEXT("LyraGame"), ESearchCase::IgnoreCase))
+        {
+            if (!SymbolName.StartsWith(TEXT("Default__")))
+            {
+                return FString::Printf(TEXT("LyraGame/%s.h"), *SymbolName);
+            }
+        }
+
         if (SymbolName.StartsWith(TEXT("Default__")))
         {
             SymbolName.RightChopInline(9, EAllowShrinking::No);
@@ -1838,10 +1925,26 @@ FBS_BlueprintData UBlueprintAnalyzer::AnalyzeBlueprint(UBlueprint* Blueprint)
 	Data.EventNodes = ExtractEventNodes(Blueprint);
 	Data.GraphNodes = ExtractGraphNodes(Blueprint, Data.TotalNodeCount);
 	
-	// Extract structured graphs (new approach)
+	// CR-034: Dual-schema note.
+	// FBS_GraphData (StructuredGraphs) is the LEGACY schema: nodes are stringified JSON, execution
+	// flows are "NodeGuid:PinName->NodeGuid:PinName" strings. It exists for backward-compat only.
+	//
+	// FBS_GraphData_Ext (StructuredGraphsExt) is the CURRENT schema: nodes are FBS_NodeData structs,
+	// execution is TArray<FBS_FlowEdge>, and it adds DataLinks, GraphInputPins, GraphOutputPins.
+	// It is a strict superset of FBS_GraphData.
+	//
+	// Consolidation plan (CR-034 — deferred because of regression risk):
+	//   1. Verify that all consumers of StructuredGraphs[] (dependency closure fallback at line ~1691,
+	//      JSON serialization at ~6863, gameplay-tag collection at ~2120) are already superseded by
+	//      StructuredGraphsExt consumers.
+	//   2. Remove ExtractStructuredGraphs() call below and delete FBS_GraphData + its serialization block.
+	//   3. Remove the BuildDependencyClosure fallback branch (guarded by StructuredGraphsExt.Num()==0).
+	//   4. Remove FBS_GraphData and FBS_BlueprintData::StructuredGraphs from the header.
+	//   5. Run regression suite to verify zero regressions.
+	// Until then: both remain populated. StructuredGraphsExt is always authoritative.
 	Data.StructuredGraphs = ExtractStructuredGraphs(Blueprint, Data.TotalNodeCount);
-	
-	// Extract extended structured graphs with proper JSON objects and flows
+
+	// Extract extended structured graphs with proper JSON objects and flows (primary path)
 	Data.StructuredGraphsExt = ExtractStructuredGraphsExt(Blueprint, Data.TotalNodeCount);
 
 	// Build node support report for converter gating
@@ -4584,6 +4687,20 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
                         AddMeta(TEXT("meta.interfaceFunctionPath"),
                             FString::Printf(TEXT("%s::%s"), *Owner->GetPathName(), *TargetFunction->GetName()));
                     }
+
+                    // CR-035: Best-effort bytecode correlation.
+                    // For CallFunction nodes that invoke a native C++ function, emit the canonical
+                    // "OwnerClass::FunctionName" correlation string. This lets converters know the
+                    // exact C++ call site without disassembling bytecode.
+                    // Native = FUNC_Native set, meaning this function has a C++ implementation.
+                    if (TargetFunction->HasAnyFunctionFlags(FUNC_Native))
+                    {
+                        FString NativeOwnerName = Owner->GetName();
+                        NativeOwnerName.RemoveFromStart(TEXT("SKEL_"));
+                        NativeOwnerName.RemoveFromEnd(TEXT("_C"));
+                        AddMeta(TEXT("meta.bytecodeCorrelation"),
+                            FString::Printf(TEXT("%s::%s"), *NativeOwnerName, *TargetFunction->GetName()));
+                    }
                 }
                 AddMetaBool(TEXT("meta.isPure"), TargetFunction->HasAllFunctionFlags(FUNC_BlueprintPure));
                 AddMetaBool(TEXT("meta.isConst"), TargetFunction->HasAllFunctionFlags(FUNC_Const));
@@ -6355,6 +6472,19 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 			FieldObj->SetBoolField(TEXT("isArray"), FieldSchema.bIsArray);
 			FieldObj->SetBoolField(TEXT("isMap"), FieldSchema.bIsMap);
 			FieldObj->SetBoolField(TEXT("isSet"), FieldSchema.bIsSet);
+			// CR-028: default value and metadata per struct field
+			if (!FieldSchema.DefaultValue.IsEmpty())
+			{
+				FieldObj->SetStringField(TEXT("defaultValue"), FieldSchema.DefaultValue);
+			}
+			if (!FieldSchema.DisplayName.IsEmpty())
+			{
+				FieldObj->SetStringField(TEXT("displayName"), FieldSchema.DisplayName);
+			}
+			if (!FieldSchema.Tooltip.IsEmpty())
+			{
+				FieldObj->SetStringField(TEXT("tooltip"), FieldSchema.Tooltip);
+			}
 			FieldArray.Add(MakeShareable(new FJsonValueObject(FieldObj)));
 		}
 
@@ -6370,6 +6500,26 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 		EnumObj->SetStringField(TEXT("name"), EnumSchema.EnumName);
 		EnumObj->SetStringField(TEXT("path"), EnumSchema.EnumPath);
 		EnumObj->SetArrayField(TEXT("enumerators"), BuildStringArray(EnumSchema.Enumerators));
+		// CR-028: per-enumerator metadata (display names, tooltips)
+		if (EnumSchema.EnumeratorMetadata.Num() > 0)
+		{
+			TArray<TSharedPtr<FJsonValue>> MetaArray;
+			for (const FBS_UserDefinedEnumValueMeta& ValueMeta : EnumSchema.EnumeratorMetadata)
+			{
+				TSharedPtr<FJsonObject> MetaObj = MakeShareable(new FJsonObject);
+				MetaObj->SetStringField(TEXT("name"), ValueMeta.Name);
+				if (!ValueMeta.DisplayName.IsEmpty())
+				{
+					MetaObj->SetStringField(TEXT("displayName"), ValueMeta.DisplayName);
+				}
+				if (!ValueMeta.Tooltip.IsEmpty())
+				{
+					MetaObj->SetStringField(TEXT("tooltip"), ValueMeta.Tooltip);
+				}
+				MetaArray.Add(MakeShareable(new FJsonValueObject(MetaObj)));
+			}
+			EnumObj->SetArrayField(TEXT("enumeratorMetadata"), MetaArray);
+		}
 		UserEnumSchemaArray.Add(MakeShareable(new FJsonValueObject(EnumObj)));
 	}
 	JsonObject->SetArrayField(TEXT("userDefinedEnumSchemas"), UserEnumSchemaArray);
@@ -6739,7 +6889,9 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 	}
 	JsonObject->SetArrayField(TEXT("timelines"), TimelineArray);
 
-    // StructuredGraphs serialization (preferred new format)
+    // CR-034: StructuredGraphs serialization (LEGACY path — see consolidation plan in AnalyzeBlueprint).
+    // This serializes the FBS_GraphData schema (string-node, string-exec arrays).
+    // StructuredGraphsExt below is the authoritative path. Both are emitted until CR-034 lands.
     if (Data.StructuredGraphs.Num() > 0)
     {
         TArray<TSharedPtr<FJsonValue>> GraphsArray;
@@ -8125,6 +8277,21 @@ void UBlueprintAnalyzer::ExtractClassParityData(UBlueprint* Blueprint, FBS_Bluep
 		return;
 	}
 
+	// CR-024: CDO filtering scope.
+	// TFieldIterator<FProperty>(BlueprintClass) with no EFieldIteratorFlags walks only properties
+	// declared directly on BlueprintClass (i.e., properties the Blueprint author set), NOT inherited
+	// properties from parent C++ classes. This is the correct behaviour for converter fidelity:
+	// we only want what differs at this Blueprint level.
+	//
+	// ClassDefaultValues: all Blueprint-declared, non-deprecated, non-transient, converter-relevant
+	//   properties with their current CDO value (for reference).
+	// ClassDefaultValueDelta: subset that differs from the immediate parent CDO — this is the
+	//   authoritative list for C++ code generation (what UPROPERTY initializers to emit).
+	//
+	// Properties that are engine-default (e.g. unmodified AActor or UObject fields) are excluded
+	// because they are not walked by TFieldIterator on BlueprintClass — they live on parent classes.
+	// The CPF_Edit|CPF_BlueprintVisible|CPF_Config|CPF_SaveGame|CPF_Net flag filter further
+	// restricts to properties that matter for a C++ converter.
 	for (TFieldIterator<FProperty> PropIt(BlueprintClass); PropIt; ++PropIt)
 	{
 		FProperty* Property = *PropIt;
@@ -8157,6 +8324,7 @@ void UBlueprintAnalyzer::ExtractClassParityData(UBlueprint* Blueprint, FBS_Bluep
 		FProperty* ParentProperty = FindFProperty<FProperty>(ParentClassDefaultObject->GetClass(), Property->GetFName());
 		if (!ParentProperty)
 		{
+			// CR-024: No parent property means this property is new at this Blueprint level — always include in delta.
 			OutData.ClassDefaultValueDelta.Add(PropertyName, CurrentValue);
 			continue;
 		}
@@ -8164,6 +8332,8 @@ void UBlueprintAnalyzer::ExtractClassParityData(UBlueprint* Blueprint, FBS_Bluep
 		const FString ParentValue = GetPropertyValueAsString(ParentClassDefaultObject, ParentProperty);
 		if (CurrentValue != ParentValue)
 		{
+			// CR-024: Only emit delta entries that actually differ from the parent CDO value.
+			// This ensures the converter only generates initializer code for properties the Blueprint author changed.
 			OutData.ClassDefaultValueDelta.Add(PropertyName, CurrentValue);
 		}
 	}
@@ -8311,6 +8481,28 @@ void UBlueprintAnalyzer::ExtractUserTypeSchemas(UBlueprint* Blueprint, FBS_Bluep
 		StructSchema.StructName = StructObject->GetName();
 		StructSchema.StructPath = StructObject->GetPathName();
 
+		// CR-028: read default values from the struct's CDO.
+		// UUserDefinedStruct::GetDefaultInstance() returns a pointer to the struct's default memory
+		// (the Blueprint-authored default values for each field).
+		// We copy it into a locally-owned buffer so we can safely call ExportText_InContainer on it.
+		void* StructDefaultMem = nullptr;
+		if (UUserDefinedStruct* UDS = Cast<UUserDefinedStruct>(StructObject))
+		{
+			const int32 StructSize = UDS->GetStructureSize();
+			if (StructSize > 0)
+			{
+				const uint8* DefaultMem = UDS->GetDefaultInstance();
+				if (DefaultMem)
+				{
+					StructDefaultMem = FMemory::Malloc(StructSize, UDS->GetMinAlignment());
+					// Initialize to zero first so ExportText has a valid 'Default' for delta-export
+					UDS->InitializeStructIgnoreDefaults(StructDefaultMem);
+					// Then copy the actual defaults on top
+					UDS->CopyScriptStruct(StructDefaultMem, DefaultMem);
+				}
+			}
+		}
+
 		for (TFieldIterator<FProperty> PropIt(StructObject); PropIt; ++PropIt)
 		{
 			FProperty* Property = *PropIt;
@@ -8326,7 +8518,45 @@ void UBlueprintAnalyzer::ExtractUserTypeSchemas(UBlueprint* Blueprint, FBS_Bluep
 			FieldSchema.bIsArray = CastField<FArrayProperty>(Property) != nullptr;
 			FieldSchema.bIsMap = CastField<FMapProperty>(Property) != nullptr;
 			FieldSchema.bIsSet = CastField<FSetProperty>(Property) != nullptr;
+
+			// CR-028: per-field default value from the struct's default memory.
+			// Pass nullptr as the Delta parameter so ExportText always writes the value,
+			// not just the delta vs. some reference object.
+			if (StructDefaultMem)
+			{
+				FString DefaultExport;
+				Property->ExportText_InContainer(0, DefaultExport, StructDefaultMem, nullptr, nullptr, PPF_None);
+				if (!DefaultExport.IsEmpty() && DefaultExport != TEXT("()") && DefaultExport != TEXT("(0)"))
+				{
+					FieldSchema.DefaultValue = DefaultExport;
+				}
+			}
+
+			// CR-028: display name and tooltip from UHT metadata (FriendlyName, ToolTip)
+			if (Property->HasMetaData(TEXT("FriendlyName")))
+			{
+				FieldSchema.DisplayName = Property->GetMetaData(TEXT("FriendlyName"));
+			}
+			if (FieldSchema.DisplayName.IsEmpty() && Property->HasMetaData(TEXT("DisplayName")))
+			{
+				FieldSchema.DisplayName = Property->GetMetaData(TEXT("DisplayName"));
+			}
+			if (Property->HasMetaData(TEXT("ToolTip")))
+			{
+				FieldSchema.Tooltip = Property->GetMetaData(TEXT("ToolTip"));
+			}
+
 			StructSchema.Fields.Add(MoveTemp(FieldSchema));
+		}
+
+		if (StructDefaultMem)
+		{
+			if (UUserDefinedStruct* UDS = Cast<UUserDefinedStruct>(StructObject))
+			{
+				UDS->DestroyStruct(StructDefaultMem);
+			}
+			FMemory::Free(StructDefaultMem);
+			StructDefaultMem = nullptr;
 		}
 
 		StructSchema.Fields.Sort([](const FBS_UserDefinedStructFieldSchema& A, const FBS_UserDefinedStructFieldSchema& B)
@@ -8371,9 +8601,42 @@ void UBlueprintAnalyzer::ExtractUserTypeSchemas(UBlueprint* Blueprint, FBS_Bluep
 			}
 
 			EnumSchema.Enumerators.Add(EnumeratorName);
+
+			// CR-028: per-enumerator metadata — authored display name and tooltip.
+			// GetAuthoredNameStringByIndex returns the Blueprint-visible display name for UUserDefinedEnum values.
+			// The ToolTip metadata key stores the per-value tooltip set in the UE enum editor.
+			FBS_UserDefinedEnumValueMeta ValueMeta;
+			ValueMeta.Name = EnumeratorName;
+			if (UUserDefinedEnum* UDE = Cast<UUserDefinedEnum>(EnumObject))
+			{
+				const FString AuthoredName = UDE->GetAuthoredNameStringByIndex(EnumIndex);
+				if (!AuthoredName.IsEmpty() && AuthoredName != EnumeratorName)
+				{
+					ValueMeta.DisplayName = AuthoredName;
+				}
+			}
+			if (ValueMeta.DisplayName.IsEmpty())
+			{
+				// Fallback: try DisplayName metadata on the enum field
+				const FString DisplayNameMeta = EnumObject->GetMetaData(TEXT("DisplayName"), EnumIndex);
+				if (!DisplayNameMeta.IsEmpty())
+				{
+					ValueMeta.DisplayName = DisplayNameMeta;
+				}
+			}
+			// Per-index ToolTip metadata
+			const FString ToolTipMeta = EnumObject->GetMetaData(TEXT("ToolTip"), EnumIndex);
+			if (!ToolTipMeta.IsEmpty())
+			{
+				ValueMeta.Tooltip = ToolTipMeta;
+			}
+			EnumSchema.EnumeratorMetadata.Add(MoveTemp(ValueMeta));
 		}
 
 		EnumSchema.Enumerators.Sort();
+		// Note: EnumeratorMetadata is in original index order, not sorted, so it stays in sync
+		// with the enum value order. Consumers should use Enumerators[] for sorted lookup and
+		// EnumeratorMetadata[] for ordered metadata.
 		OutData.UserDefinedEnumSchemas.Add(MoveTemp(EnumSchema));
 	}
 
@@ -8562,19 +8825,47 @@ TArray<FBS_VariableInfo> UBlueprintAnalyzer::ExtractDetailedVariables(UBlueprint
 		}
 
 		TSet<FString> Specifiers;
-		if (VarDesc.PropertyFlags & CPF_Edit)
+		// CR-029: edit/visible specifiers — prefer the most specific one.
+		// Priority: EditDefaultsOnly/EditInstanceOnly > EditAnywhere > VisibleDefaultsOnly/VisibleInstanceOnly > VisibleAnywhere.
+		const bool bEdit = (VarDesc.PropertyFlags & CPF_Edit) != 0;
+		const bool bDisableOnInstance = (VarDesc.PropertyFlags & CPF_DisableEditOnInstance) != 0;
+		const bool bDisableOnTemplate = (VarDesc.PropertyFlags & CPF_DisableEditOnTemplate) != 0;
+		const bool bBlueprintVisible = (VarDesc.PropertyFlags & CPF_BlueprintVisible) != 0;
+		// CPF_EditConst means the property is read-only in details panels (maps to Visible* specifiers in UPROPERTY)
+		const bool bEditConst = (VarDesc.PropertyFlags & CPF_EditConst) != 0;
+
+		if (bEdit && !bEditConst)
 		{
-			Specifiers.Add(TEXT("EditAnywhere"));
+			if (bDisableOnInstance)
+			{
+				Specifiers.Add(TEXT("EditDefaultsOnly"));
+			}
+			else if (bDisableOnTemplate)
+			{
+				Specifiers.Add(TEXT("EditInstanceOnly"));
+			}
+			else
+			{
+				Specifiers.Add(TEXT("EditAnywhere"));
+			}
 		}
-		if ((VarDesc.PropertyFlags & CPF_Edit) && (VarDesc.PropertyFlags & CPF_DisableEditOnInstance))
+		else if (bEdit && bEditConst)
 		{
-			Specifiers.Add(TEXT("EditDefaultsOnly"));
+			// Read-only in details panel
+			if (bDisableOnInstance)
+			{
+				Specifiers.Add(TEXT("VisibleDefaultsOnly"));
+			}
+			else if (bDisableOnTemplate)
+			{
+				Specifiers.Add(TEXT("VisibleInstanceOnly"));
+			}
+			else
+			{
+				Specifiers.Add(TEXT("VisibleAnywhere"));
+			}
 		}
-		if ((VarDesc.PropertyFlags & CPF_Edit) && (VarDesc.PropertyFlags & CPF_DisableEditOnTemplate))
-		{
-			Specifiers.Add(TEXT("EditInstanceOnly"));
-		}
-		if (VarDesc.PropertyFlags & CPF_BlueprintVisible)
+		if (bBlueprintVisible)
 		{
 			Specifiers.Add(TEXT("BlueprintReadWrite"));
 		}
@@ -8621,6 +8912,14 @@ TArray<FBS_VariableInfo> UBlueprintAnalyzer::ExtractDetailedVariables(UBlueprint
 		if (VarDesc.PropertyFlags & CPF_RepNotify)
 		{
 			Specifiers.Add(TEXT("ReplicatedUsing"));
+		}
+
+		// CR-029: Category specifier (matches what a C++ UPROPERTY macro would emit).
+		// The Category value is also in VarInfo.Category but including it in declarationSpecifiers
+		// lets consumers produce a complete UPROPERTY() specifier list without a separate lookup.
+		if (!VarDesc.Category.IsEmpty())
+		{
+			Specifiers.Add(FString::Printf(TEXT("Category=\"%s\""), *VarDesc.Category.ToString()));
 		}
 
 		VarInfo.DeclarationSpecifiers = Specifiers.Array();
@@ -9013,11 +9312,35 @@ TArray<FBS_FunctionInfo> UBlueprintAnalyzer::ExtractDetailedFunctions(UBlueprint
 		{
 			if (Func->HasAnyFunctionFlags(FUNC_BlueprintCallable)) FunctionSpecifiers.Add(TEXT("BlueprintCallable"));
 			if (Func->HasAnyFunctionFlags(FUNC_BlueprintEvent)) FunctionSpecifiers.Add(TEXT("BlueprintEvent"));
+			// CR-029: BlueprintImplementableEvent vs BlueprintNativeEvent distinction.
+			// BlueprintImplementableEvent = FUNC_BlueprintEvent + !FUNC_Native (C++ provides no default impl).
+			// BlueprintNativeEvent       = FUNC_BlueprintEvent + FUNC_Native  (C++ provides _Implementation).
+			if (Func->HasAnyFunctionFlags(FUNC_BlueprintEvent))
+			{
+				if (Func->HasAnyFunctionFlags(FUNC_Native))
+				{
+					FunctionSpecifiers.Add(TEXT("BlueprintNativeEvent"));
+				}
+				else
+				{
+					FunctionSpecifiers.Add(TEXT("BlueprintImplementableEvent"));
+				}
+			}
 			if (Func->HasAnyFunctionFlags(FUNC_Event)) FunctionSpecifiers.Add(TEXT("Event"));
 			if (Func->HasAnyFunctionFlags(FUNC_Exec)) FunctionSpecifiers.Add(TEXT("Exec"));
 			if (Func->HasAnyFunctionFlags(FUNC_Const)) FunctionSpecifiers.Add(TEXT("Const"));
 			if (Func->HasAnyFunctionFlags(FUNC_Final)) FunctionSpecifiers.Add(TEXT("Final"));
 			if (Func->HasMetaData(TEXT("DeprecatedFunction"))) FunctionSpecifiers.Add(TEXT("DeprecatedFunction"));
+			// CR-029: Category specifier — emit it in declarationSpecifiers as well (already in FuncInfo.Category field).
+			// The Category value is also surfaced here so consumers can see it without a separate field lookup.
+			if (Func->HasMetaData(TEXT("Category")))
+			{
+				const FString Cat = Func->GetMetaData(TEXT("Category"));
+				if (!Cat.IsEmpty())
+				{
+					FunctionSpecifiers.Add(FString::Printf(TEXT("Category=\"%s\""), *Cat));
+				}
+			}
 		}
 
 		if (FuncInfo.ReturnType.IsEmpty())

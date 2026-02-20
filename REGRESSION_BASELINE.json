@@ -66,7 +66,14 @@
     "nodesWithPropertyAccess": 85,
     "nodesWithGetDataTableRow": 2,
     "nodesWithGetEnumeratorName": 4,
-    "nodesWithMultiGate": 1
+    "nodesWithMultiGate": 1,
+    "nativeIncludeHintsNonEmpty": 485,
+    "userStructSchemaNonEmpty": 42,
+    "userEnumSchemaNonEmpty": 53,
+    "userStructFieldCount": 575,
+    "userEnumValueCount": 398,
+    "variablesWithDeclarationSpecifiers": 3133,
+    "functionsWithDeclarationSpecifiers": 936
   },
   "curveAuditMinMetrics": {
     "animSequenceAssetsTotal": 584,

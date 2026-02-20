@@ -411,6 +411,18 @@ struct BLUEPRINTSERIALIZER_API FBS_UserDefinedStructFieldSchema
 
 	UPROPERTY()
 	bool bIsSet = false;
+
+	// CR-028: default value read from the struct's CDO
+	UPROPERTY()
+	FString DefaultValue;
+
+	// CR-028: friendly/display name (UDS uses FriendlyName metadata)
+	UPROPERTY()
+	FString DisplayName;
+
+	// CR-028: tooltip metadata string
+	UPROPERTY()
+	FString Tooltip;
 };
 
 USTRUCT(BlueprintType)
@@ -428,6 +440,25 @@ struct BLUEPRINTSERIALIZER_API FBS_UserDefinedStructSchema
 	TArray<FBS_UserDefinedStructFieldSchema> Fields;
 };
 
+// CR-028: per-enumerator metadata (display name and tooltip) for user-defined enums.
+USTRUCT(BlueprintType)
+struct BLUEPRINTSERIALIZER_API FBS_UserDefinedEnumValueMeta
+{
+	GENERATED_BODY()
+
+	// Internal name (same value as the parallel Enumerators array entry)
+	UPROPERTY()
+	FString Name;
+
+	// CR-028: authored display name from GetAuthoredNameStringByIndex or FriendlyName metadata
+	UPROPERTY()
+	FString DisplayName;
+
+	// CR-028: tooltip from ToolTip metadata
+	UPROPERTY()
+	FString Tooltip;
+};
+
 USTRUCT(BlueprintType)
 struct BLUEPRINTSERIALIZER_API FBS_UserDefinedEnumSchema
 {
@@ -439,8 +470,13 @@ struct BLUEPRINTSERIALIZER_API FBS_UserDefinedEnumSchema
 	UPROPERTY()
 	FString EnumPath;
 
+	// Legacy: enumerator name strings (kept for backward compatibility)
 	UPROPERTY()
 	TArray<FString> Enumerators;
+
+	// CR-028: per-enumerator metadata (display names, tooltips). Parallel to Enumerators.
+	UPROPERTY()
+	TArray<FBS_UserDefinedEnumValueMeta> EnumeratorMetadata;
 };
 
 /**

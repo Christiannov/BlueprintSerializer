@@ -246,13 +246,20 @@ void FBlueprintExtractorCommands::ExportAllBlueprints(const TArray<FString>& Arg
 #endif
 }
 
+// LEGACY: BP_SLZR.ExportCompleteData — delegates to UDataExportManager::ExportCompleteProjectData()
+// which is an older, monolithic bulk export path. It does not go through the per-Blueprint
+// UBlueprintAnalyzer::ExportSingleBlueprintToJSON() pipeline used by the regression suite.
+// Preserved for backward compatibility only.
+// TODO (CR-018): Either route through ExportAllBlueprints (which uses ExportSingleBlueprintToJSON)
+//                or deprecate/remove this command entirely.
 void FBlueprintExtractorCommands::ExportCompleteProjectData(const TArray<FString>& Args)
 {
 #if WITH_EDITOR
-    // ⚠️ CRITICAL WARNING: This command can cause memory overload and system crashes!
-    UE_LOG(LogTemp, Error, TEXT("⚠️ WARNING: BP_SLZR.ExportCompleteData is DANGEROUS and may cause memory overload!"));
-    UE_LOG(LogTemp, Error, TEXT("⚠️ RECOMMENDATION: Use BP_SLZR.ExportSingleBlueprint for individual blueprints instead!"));
-    UE_LOG(LogTemp, Error, TEXT("⚠️ This command processes ALL project data and may crash the system!"));
+    // LEGACY: This path uses UDataExportManager rather than UBlueprintAnalyzer::ExportSingleBlueprintToJSON.
+    // WARNING: Can cause memory overload on large projects.
+    UE_LOG(LogTemp, Error, TEXT("WARNING: BP_SLZR.ExportCompleteData is DANGEROUS and may cause memory overload!"));
+    UE_LOG(LogTemp, Error, TEXT("RECOMMENDATION: Use BP_SLZR.ExportSingleBlueprint for individual blueprints instead!"));
+    UE_LOG(LogTemp, Error, TEXT("NOTE (CR-018): This is a legacy path that bypasses the unified ExportSingleBlueprintToJSON pipeline."));
     
     if (GEngine)
     {
@@ -350,42 +357,52 @@ void FBlueprintExtractorCommands::CountProjectBlueprints(const TArray<FString>& 
 #endif
 }
 
+// LEGACY: BP_SLZR.AnalyzeBlueprint — console-print-only path that bypasses the unified JSON
+// export pipeline (UBlueprintAnalyzer::ExportSingleBlueprintToJSON). It calls AnalyzeBlueprint()
+// but never serialises the result to disk or goes through BlueprintDataToJsonObject().
+// Preserved for quick interactive diagnostics only — do NOT use for corpus runs.
+// TODO (CR-018): Unify with ExportSingleBlueprint so both go through the same pipeline, or
+//                remove this command once all callers have migrated to BP_SLZR.ExportSingleBlueprint.
 void FBlueprintExtractorCommands::AnalyzeSpecificBlueprint(const TArray<FString>& Args)
 {
 #if WITH_EDITOR
     if (Args.Num() == 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("❌ Usage: BP_SLZR.AnalyzeBlueprint /Game/Path/To/Blueprint"));
+        UE_LOG(LogTemp, Warning, TEXT("Usage: BP_SLZR.AnalyzeBlueprint /Game/Path/To/Blueprint"));
+        UE_LOG(LogTemp, Warning, TEXT("NOTE: This command only prints a summary. Use BP_SLZR.ExportSingleBlueprint to get the full JSON export."));
         return;
     }
-    
+
     FString BlueprintPath = Args[0];
-    
+
     // Handle semicolon-separated commands (e.g., "path;quit")
     int32 SemicolonIndex;
     if (BlueprintPath.FindChar(';', SemicolonIndex))
     {
         BlueprintPath = BlueprintPath.Left(SemicolonIndex);
     }
-    
-    UE_LOG(LogTemp, Log, TEXT("🔍 Analyzing Blueprint: %s"), *BlueprintPath);
-    
+
+    UE_LOG(LogTemp, Log, TEXT("Analyzing Blueprint (summary only): %s"), *BlueprintPath);
+    UE_LOG(LogTemp, Warning, TEXT("NOTE (CR-018): This is a legacy diagnostic command. For full JSON output use BP_SLZR.ExportSingleBlueprint."));
+
     UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *BlueprintPath);
-    
+
     if (!Blueprint)
     {
-        UE_LOG(LogTemp, Error, TEXT("❌ Could not load Blueprint: %s"), *BlueprintPath);
+        UE_LOG(LogTemp, Error, TEXT("Could not load Blueprint: %s"), *BlueprintPath);
         if (GEngine)
         {
-            GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, 
-                FString::Printf(TEXT("❌ Blueprint not found: %s"), *BlueprintPath));
+            GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red,
+                FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintPath));
         }
         return;
     }
-    
+
+    // LEGACY: AnalyzeBlueprint() is called here but the result is only printed to the log —
+    // it is never written to disk. The unified path is ExportSingleBlueprintToJSON().
     FBS_BlueprintData Data = UBlueprintAnalyzer::AnalyzeBlueprint(Blueprint);
-    
-    UE_LOG(LogTemp, Log, TEXT("✅ Blueprint Analysis Complete:"));
+
+    UE_LOG(LogTemp, Log, TEXT("Blueprint Analysis Summary (use ExportSingleBlueprint for full output):"));
     UE_LOG(LogTemp, Log, TEXT("  Name: %s"), *Data.BlueprintName);
     UE_LOG(LogTemp, Log, TEXT("  Parent: %s"), *Data.ParentClassName);
     UE_LOG(LogTemp, Log, TEXT("  Variables: %d"), Data.Variables.Num());
@@ -393,11 +410,12 @@ void FBlueprintExtractorCommands::AnalyzeSpecificBlueprint(const TArray<FString>
     UE_LOG(LogTemp, Log, TEXT("  Components: %d"), Data.Components.Num());
     UE_LOG(LogTemp, Log, TEXT("  Total Nodes: %d"), Data.TotalNodeCount);
     UE_LOG(LogTemp, Log, TEXT("  Interfaces: %d"), Data.ImplementedInterfaces.Num());
-    
+
     if (GEngine)
     {
-        GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Green, 
-            FString::Printf(TEXT("✅ %s: %d vars, %d funcs, %d nodes"), *Data.BlueprintName, Data.Variables.Num(), Data.Functions.Num(), Data.TotalNodeCount));
+        GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Green,
+            FString::Printf(TEXT("%s: %d vars, %d funcs, %d nodes (use ExportSingleBlueprint for JSON)"),
+                *Data.BlueprintName, Data.Variables.Num(), Data.Functions.Num(), Data.TotalNodeCount));
     }
 #endif
 }
