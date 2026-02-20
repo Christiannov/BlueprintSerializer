@@ -503,6 +503,26 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Lesson: Non-API methods in UE DLLs cannot be called from plugin DLLs even when the header is available. Always check for `MODULE_API` decorator before calling across DLL boundaries; replicate simple accessor logic inline if not exported.
 - Follow-up: update `CONVERTER_READY_TODO.md`; investigate CR-002/CR-003 AnimBP edge cases; implement CR-033/CR-034 schema consistency.
 
+### 2026-02-20 10:43 - CR-033: coverage key normalization
+
+- Scope: remove snake_case alias keys from the `coverage` object emitted in all 4 serialization sites; normalize to camelCase-only canonical schema.
+- Changes:
+  - Site 1 (legacy structuredGraphs): removed `by_type` (alias for `nodeTypes`), `total_nodes` (alias for `totalNodeCount`), `unknownNodeTypes`/`unknown_types` empty arrays; renamed `nodeTypes` → `nodeTypeCounts` to match sites 2-4.
+  - Site 2 (StructuredGraphsExt override): removed `total_nodes`, `by_type`, `unknown_types`.
+  - Site 3 (fallback coverage): removed `total_nodes`, `by_type`, `unknown_types`.
+  - Site 4 (AnimBlueprint coverage): removed `total_nodes`, `by_type`.
+  - All 4 sites now emit: `totalNodeCount`, `nodeTypeCounts`, `unsupportedNodeTypes`, `partiallySupportedNodeTypes` (plus anim-specific fields in site 4).
+- Command:
+  - `powershell -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260220_104347/`
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260220_104354.json`
+  - `Saved/BlueprintExports/BP_SLZR_All_20260220_104347/BP_SLZR_ValidationReport_20260220_104354.json`
+- Key metrics:
+  - `suitePass=True`, `overallPass=True`, all 14 gates pass — no regressions from schema normalization.
+- Result: `pass`
+- Follow-up: note CR-034 (schema drift) as documentation-only maintenance item; proceed to CR-002/CR-003 AnimBP edge cases.
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.

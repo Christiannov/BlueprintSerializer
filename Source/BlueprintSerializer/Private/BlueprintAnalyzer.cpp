@@ -6829,11 +6829,7 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
             NodeTypes->SetNumberField(P.Key, P.Value);
         }
         Coverage->SetNumberField(TEXT("totalNodeCount"), Data.TotalNodeCount);
-        Coverage->SetObjectField(TEXT("nodeTypes"), NodeTypes);
-        Coverage->SetObjectField(TEXT("by_type"), NodeTypes);
-        Coverage->SetNumberField(TEXT("total_nodes"), Data.TotalNodeCount);
-        Coverage->SetArrayField(TEXT("unknownNodeTypes"), TArray<TSharedPtr<FJsonValue>>{});
-        Coverage->SetArrayField(TEXT("unknown_types"), TArray<TSharedPtr<FJsonValue>>{});
+        Coverage->SetObjectField(TEXT("nodeTypeCounts"), NodeTypes);
         Coverage->SetArrayField(TEXT("unsupportedNodeTypes"), BuildStringArray(Data.UnsupportedNodeTypes));
         Coverage->SetArrayField(TEXT("partiallySupportedNodeTypes"), BuildStringArray(Data.PartiallySupportedNodeTypes));
         JsonObject->SetObjectField(TEXT("coverage"), Coverage);
@@ -7089,20 +7085,17 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
         
         // Update coverage with new counts
         TSharedPtr<FJsonObject> Coverage = MakeShareable(new FJsonObject);
-        Coverage->SetNumberField(TEXT("total_nodes"), Data.TotalNodeCount);
         Coverage->SetNumberField(TEXT("totalNodeCount"), Data.TotalNodeCount);
-        
+
         TSharedPtr<FJsonObject> NodeTypes = MakeShareable(new FJsonObject);
         for (const TPair<FString, int32>& P : NodeTypeCounts)
         {
             NodeTypes->SetNumberField(P.Key, P.Value);
         }
-        Coverage->SetObjectField(TEXT("by_type"), NodeTypes);
         Coverage->SetObjectField(TEXT("nodeTypeCounts"), NodeTypes);
-        Coverage->SetArrayField(TEXT("unknown_types"), TArray<TSharedPtr<FJsonValue>>{});
         Coverage->SetArrayField(TEXT("unsupportedNodeTypes"), BuildStringArray(Data.UnsupportedNodeTypes));
         Coverage->SetArrayField(TEXT("partiallySupportedNodeTypes"), BuildStringArray(Data.PartiallySupportedNodeTypes));
-        
+
         JsonObject->SetObjectField(TEXT("coverage"), Coverage);
 
         // Graphs summary (counts per graph)
@@ -7176,11 +7169,8 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 	if (!JsonObject->HasField(TEXT("coverage")))
 	{
 		TSharedPtr<FJsonObject> CoverageObj = MakeShareable(new FJsonObject);
-		CoverageObj->SetNumberField(TEXT("total_nodes"), Data.TotalNodeCount);
 		CoverageObj->SetNumberField(TEXT("totalNodeCount"), Data.TotalNodeCount);
-		CoverageObj->SetObjectField(TEXT("by_type"), MakeShareable(new FJsonObject));
 		CoverageObj->SetObjectField(TEXT("nodeTypeCounts"), MakeShareable(new FJsonObject));
-		CoverageObj->SetArrayField(TEXT("unknown_types"), TArray<TSharedPtr<FJsonValue>>{});
 		CoverageObj->SetArrayField(TEXT("unsupportedNodeTypes"), BuildStringArray(Data.UnsupportedNodeTypes));
 		CoverageObj->SetArrayField(TEXT("partiallySupportedNodeTypes"), BuildStringArray(Data.PartiallySupportedNodeTypes));
 		JsonObject->SetObjectField(TEXT("coverage"), CoverageObj);
@@ -7660,7 +7650,6 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 		{
 			TSharedPtr<FJsonObject> CoverageObj = MakeShareable(new FJsonObject);
 			CoverageObj->SetNumberField(TEXT("totalNodeCount"), Data.TotalNodeCount);
-			CoverageObj->SetNumberField(TEXT("total_nodes"), Data.TotalNodeCount);
 			CoverageObj->SetNumberField(TEXT("totalStateNodes"), Data.Coverage.TotalStateNodes);
 			CoverageObj->SetNumberField(TEXT("totalTransitions"), Data.Coverage.TotalTransitions);
 			CoverageObj->SetNumberField(TEXT("totalNotifies"), Data.Coverage.TotalNotifies);
@@ -7668,7 +7657,6 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 			CoverageObj->SetNumberField(TEXT("totalAnimAssets"), Data.Coverage.TotalAnimAssets);
 			CoverageObj->SetNumberField(TEXT("totalControlRigs"), Data.Coverage.TotalControlRigs);
 			AddSortedIntMap(CoverageObj, TEXT("nodeTypeCounts"), Data.Coverage.NodeTypeCounts);
-			AddSortedIntMap(CoverageObj, TEXT("by_type"), Data.Coverage.NodeTypeCounts);
 			CoverageObj->SetArrayField(TEXT("unsupportedNodeTypes"), BuildStringArray(Data.UnsupportedNodeTypes));
 			CoverageObj->SetArrayField(TEXT("partiallySupportedNodeTypes"), BuildStringArray(Data.PartiallySupportedNodeTypes));
 			JsonObject->SetObjectField(TEXT("coverage"), CoverageObj);
