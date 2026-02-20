@@ -158,7 +158,7 @@ Edit `BlueprintSerializer.Build.cs` → `PrivateDependencyModuleNames`. Then reb
 
 485 Blueprint files, 0 parse errors, 14 validation gates (all must pass).
 
-Key corpus counts as of 2026-02-20 (run BP_SLZR_RegressionRun_20260220_103228):
+Key corpus counts as of 2026-02-20 (run BP_SLZR_RegressionRun_20260220_144944):
 - `nodesWithTunnel`: 1949
 - `nodesWithPromotableOp`: 1000
 - `nodesWithBranch`: 1054, `nodesWithReroute`: 2949
@@ -169,7 +169,12 @@ Key corpus counts as of 2026-02-20 (run BP_SLZR_RegressionRun_20260220_103228):
 - `nodesWithGetSubsystem`: 72, `nodesWithMakeArray`: 71
 - `nodesWithMultiGate`: 1
 - `variablesTotal`: 3133, `functionsTotal`: 936, `componentsTotal`: 818
-- `exportsWithUnsupportedNodeFallback`: 0 (was 164 before Task 51)
+- `exportsWithUnsupportedNodeFallback`: 0
+- `variablesWithDeclarationSpecifiers`: 3133, `functionsWithDeclarationSpecifiers`: 936
+- `nativeIncludeHintsNonEmpty`: 485
+- `userStructSchemaNonEmpty`: 42 (with DefaultValue/DisplayName/Tooltip per field)
+- `userEnumSchemaNonEmpty`: 53 (with DisplayName/Tooltip per value)
+- `structuredGraphsTotal`: 2342, `structuredGraphNodesTotal`: 37365
 
 See `REGRESSION_BASELINE.json` for the full and authoritative list.
 
@@ -195,4 +200,4 @@ Work queue is tracked in GitHub Issues. Use `gh issue list --repo Jinphinity/Blu
 
 ---
 
-*Last updated: 2026-02-20 (git-first migration). Update this file whenever architectural patterns, module deps, or build procedures change.*
+*Last updated: 2026-02-20 (v1.0-converter-ready). All CXX-001-008 goals met. B_Weapon end-to-end conversion verified. Update this file whenever architectural patterns, module deps, or build procedures change.*
