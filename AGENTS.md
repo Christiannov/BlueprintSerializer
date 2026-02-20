@@ -1,62 +1,52 @@
 # BlueprintSerializer Agent Guide
 
-This file is the first-stop context for any AI agent working inside `Plugins/BlueprintSerializer`.
+> **START HERE — before reading anything else, read the universal core context file:**
+>
+> **`Plugins/BlueprintSerializer/blueprintserializer_cortext.md`**
+>
+> That file is the single source of truth for this plugin: build rules, regression
+> workflow, architectural patterns, key source files, and baseline metrics.
+> Everything below is a quick-reference supplement to it.
 
-## Canonical References
+---
 
-Always read these before making changes:
+## Canonical References (read in this order)
 
-- `FULL_EXTRACTION_DEFINITION.md`
-- `CONVERTER_READY_EXTRACTION_SPEC.md`
-- `CONVERTER_READY_TODO.md`
-- `REGRESSION_HARNESS.md`
-- `REGRESSION_LOG.md`
-- `REGRESSION_BASELINE.json`
+1. **`blueprintserializer_cortext.md`** ← universal context, always first
+2. `CONVERTER_READY_TODO.md` — live backlog
+3. `REGRESSION_LOG.md` — run history and lessons
+4. `REGRESSION_BASELINE.json` — current metric thresholds
+5. `REGRESSION_HARNESS.md` — harness internals
+6. `FULL_EXTRACTION_DEFINITION.md` — complete extraction spec
+7. `CONVERTER_READY_EXTRACTION_SPEC.md` — converter-ready scope
 
-## Required Regression Workflow
+---
 
-For any non-trivial change, run this sequence:
+## Required Workflow for Any Non-Trivial Change
 
-1. Build plugin/editor target.
-2. Run `BP_SLZR.RunRegressionSuite`.
-3. Verify results from artifact files/logs, not shell timeout status.
-4. Update `CONVERTER_READY_TODO.md` with evidence-based metrics.
-5. Append a new entry to `REGRESSION_LOG.md`.
+1. Read `blueprintserializer_cortext.md` (build rule, patterns, baseline)
+2. Make code changes
+3. Build — **host project editor target, not plugin name** (see cortext for command)
+4. Run regression suite: `powershell -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
+5. Confirm `suitePass=True` in the JSON artifact — not from shell exit code
+6. Update `REGRESSION_BASELINE.json` if new metrics were added
+7. Append entry to `REGRESSION_LOG.md`
+8. Commit plugin + superproject with descriptive message
 
-## Command Defaults
-
-- Preferred host-side entrypoint (auto timeout + auto-close UE process):
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1 -ExportDir Saved/BlueprintExports/BP_SLZR_All_<timestamp> -SkipExport -BaselinePath Plugins/BlueprintSerializer/REGRESSION_BASELINE.json`
-
-- Full run (new export dir):
-  - `BP_SLZR.RunRegressionSuite`
-- Reuse existing batch (faster validation-only path):
-  - `BP_SLZR.RunRegressionSuite Saved/BlueprintExports/BP_SLZR_All_<timestamp> true`
-- Override baseline file (optional):
-  - `BP_SLZR.RunRegressionSuite Saved/BlueprintExports/BP_SLZR_All_<timestamp> true Plugins/BlueprintSerializer/REGRESSION_BASELINE.json`
-
-The suite runs:
-
-- `BP_SLZR.ExportAllBlueprints` (unless `skipExport=true`)
-- `BP_SLZR.ValidateConverterReady`
-- `BP_SLZR.AuditAnimationCurves`
+---
 
 ## Anti-Regression Rules
 
-- Do not claim success unless artifact files exist and contain expected metrics.
-- Require `suitePass=true` in `BP_SLZR_RegressionRun_<timestamp>.json` before marking a regression run successful.
-- Treat Unreal command timeouts as inconclusive; confirm completion via `Saved/Logs/LyraStarterGame.log` and report JSON files.
-- Keep status language precise:
-  - `done`: implemented and validated with corpus evidence.
-  - `in_progress`: implemented but validation incomplete.
-  - `blocked`: validation blocked by corpus/tooling constraints.
+- Do not claim success unless artifact files exist and contain expected metrics
+- `suitePass=True` in `BP_SLZR_RegressionRun_<timestamp>.json` is the only valid success signal
+- Treat Unreal command timeouts as inconclusive; confirm via log and report JSON files
+- Never mark a task `done` without corpus evidence from a passing regression run
+
+---
 
 ## Scope Priority
 
-Prioritize work that AI can reliably execute and validate without manual editor authoring.
-Animation content authoring/visual tuning stays human-led; automation should focus on extraction fidelity, validation gates, and deterministic reporting.
+- **Primary:** C++ conversion fidelity — extraction completeness, node meta enrichment, dependency closure
+- **Secondary:** Editor-heavy animation authoring — human-led, automation assists only
 
-Persistent mandate:
-- Primary: C++ conversion fidelity for gameplay/class logic (`CR-035`, `CR-036`, `CR-006`, then remaining CXX-* mapped items).
-- Secondary: editor-heavy animation authoring/deep animation polish unless explicitly requested.
-- Keep `CONVERTER_READY_TODO.md` in normalized backlog mode (`todo` rows with "left off" context) so new AI sessions inherit the same priority framing.
+Keep `CONVERTER_READY_TODO.md` in normalized backlog mode so new sessions inherit priority without rereading the full log.
