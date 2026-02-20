@@ -357,6 +357,35 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `pass` — all six tasks compile cleanly and regress at zero risk; new control-flow pin metadata and graph-boundary cross-linkage fully populated in 460 of 485 exports.
 - Follow-up: correct `bytecodeNodeTracesTotal` metric to walk `nodeTraces[].nodeGuid` instead of `bytecodeNodeGuids[]`; continue next conversion-fidelity CR batch.
 
+### 2026-02-19 21:29 - Tasks 21-26: bytecodeNodeTraces fix + Branch/Sequence/Reroute/Self/SpawnActor/Timeline node enrichment
+
+- Scope: fix Task 20 metric key mismatch and add six new control-flow node handlers for C++ conversion fidelity.
+- Changes:
+  - **Task 21 (bytecodeNodeTracesTotal metric fix)**: `BlueprintExtractorCommands.cpp` — changed counter from reading `"bytecodeNodeGuids"` (flat string array, never emitted) to `"nodeTraces"` (array of `{nodeGuid, nodeType}` objects emitted by CR-035); `bytecodeNodeTracesTotal` now correctly counts node-trace entries.
+  - **Task 22 (Branch/IfThenElse)**: New `UK2Node_IfThenElse` handler emits `meta.isBranch=true`, `meta.branchConditionPinId`, `meta.branchTruePinId`, `meta.branchFalsePinId`; added `K2Node_IfThenElse.h` include.
+  - **Task 22 (Timeline exec pins)**: Extended `UK2Node_Timeline` handler to emit `meta.timelinePlayPinId`, `meta.timelinePlayFromStartPinId`, `meta.timelineStopPinId`, `meta.timelineReversePinId`, `meta.timelineReverseFromEndPinId`, `meta.timelineSetNewTimePinId`, `meta.timelineUpdatePinId`, `meta.timelineFinishedPinId` via `FindPin` by name.
+  - **Task 23 (Sequence)**: New `UK2Node_ExecutionSequence` handler emits `meta.isSequence=true`, `meta.sequenceOutputCount`, `meta.sequenceOutputPinIds` (ordered, semicolon-sep); added `K2Node_ExecutionSequence.h` include.
+  - **Task 24 (Reroute/Knot)**: New `UK2Node_Knot` handler emits `meta.isReroute=true`, `meta.rerouteInputPinId`, `meta.rerouteOutputPinId`; added `K2Node_Knot.h` include.
+  - **Task 25 (Self)**: New `UK2Node_Self` handler emits `meta.isSelf=true`; added `K2Node_Self.h` include.
+  - **Task 26 (SpawnActorFromClass)**: New `UK2Node_SpawnActorFromClass` handler emits `meta.isSpawnActor=true`, `meta.spawnClassPinId`, `meta.spawnTransformPinId`, `meta.spawnReturnPinId`; added `K2Node_SpawnActorFromClass.h` include.
+  - **Validator metrics**: Added 6 new informational counters (`nodesWithBranch`, `nodesWithSequence`, `nodesWithReroute`, `nodesWithSelf`, `nodesWithSpawnActor`, `nodesWithTimelineExecPins`); no new gate added.
+  - Build: 4 incremental actions (compile `Module.BlueprintSerializer.3.cpp` + link `.lib` + link `.dll` + write metadata), 68 s.
+- Command:
+  - `powershell -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_212850/` (fresh export batch, 485 files)
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260219_212934.json`
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_212850/BP_SLZR_ValidationReport_20260219_212934.json`
+  - `Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260219_212934.json`
+- Key metrics:
+  - `suitePass=true`, `overallPass=true`, all 14 gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`
+  - `bytecodeNodeTracesTotal=4556` (was 0 — metric fix verified), `exportsWithBytecodeNodeTraces=147`
+  - `nodesWithBranch=1054`, `nodesWithSequence=231`, `nodesWithReroute=2949`, `nodesWithSelf=100`, `nodesWithSpawnActor=21`, `nodesWithTimelineExecPins=8`
+  - All prior stability metrics unchanged: `exportsWithStructuredGraphs=460`, `structuredGraphNodesTotal=37365`, `nodesWithSwitchCasePinIds=103`, `nodesWithSelectPinIds=333`.
+- Result: `pass` — all six new node handlers and the metric fix compile cleanly and regress at zero risk; bytecode node trace linkage now correctly populated (4556 traces across 147 exports); reroute nodes are the most prevalent new corpus entry at 2949.
+- Follow-up: promote Branch/Sequence/Reroute to structured gate thresholds if they prove stable across runs; continue next fidelity batch (AddComponent, DoOnce/Gate/DoN flow-control, GetClassDefaults).
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.

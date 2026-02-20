@@ -98,6 +98,11 @@
 #include "K2Node_SwitchName.h"
 #include "K2Node_SwitchString.h"
 #include "K2Node_Composite.h"
+#include "K2Node_IfThenElse.h"
+#include "K2Node_ExecutionSequence.h"
+#include "K2Node_Knot.h"
+#include "K2Node_Self.h"
+#include "K2Node_SpawnActorFromClass.h"
 #include "K2Node_MakeStruct.h"
 #include "K2Node_BreakStruct.h"
 #include "K2Node_StructOperation.h"
@@ -4565,6 +4570,86 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
 					}
 				}
 			}
+            // Task 22: emit exec/data pin IDs for full graph linkage through timeline nodes
+            auto EmitTimelinePinId = [&](const TCHAR* PinName, EEdGraphPinDirection Dir, const TCHAR* MetaKey)
+            {
+                UEdGraphPin* Pin = Node->FindPin(FName(PinName), Dir);
+                if (Pin) AddMeta(MetaKey, Pin->PinId.ToString());
+            };
+            EmitTimelinePinId(TEXT("Play"),           EGPD_Input,  TEXT("meta.timelinePlayPinId"));
+            EmitTimelinePinId(TEXT("PlayFromStart"),  EGPD_Input,  TEXT("meta.timelinePlayFromStartPinId"));
+            EmitTimelinePinId(TEXT("Stop"),           EGPD_Input,  TEXT("meta.timelineStopPinId"));
+            EmitTimelinePinId(TEXT("Reverse"),        EGPD_Input,  TEXT("meta.timelineReversePinId"));
+            EmitTimelinePinId(TEXT("ReverseFromEnd"), EGPD_Input,  TEXT("meta.timelineReverseFromEndPinId"));
+            EmitTimelinePinId(TEXT("SetNewTime"),     EGPD_Input,  TEXT("meta.timelineSetNewTimePinId"));
+            EmitTimelinePinId(TEXT("Update"),         EGPD_Output, TEXT("meta.timelineUpdatePinId"));
+            EmitTimelinePinId(TEXT("Finished"),       EGPD_Output, TEXT("meta.timelineFinishedPinId"));
+        }
+
+        // --- Task 22: Branch (IfThenElse) — condition + exec output pin IDs for if/else reconstruction ---
+        if (UK2Node_IfThenElse* Branch = Cast<UK2Node_IfThenElse>(K2))
+        {
+            AddMetaBool(TEXT("meta.isBranch"), true);
+            UEdGraphPin* CondPin = Node->FindPin(TEXT("Condition"), EGPD_Input);
+            if (CondPin) AddMeta(TEXT("meta.branchConditionPinId"), CondPin->PinId.ToString());
+            UEdGraphPin* TruePin = Node->FindPin(TEXT("then"), EGPD_Output);
+            if (TruePin) AddMeta(TEXT("meta.branchTruePinId"), TruePin->PinId.ToString());
+            UEdGraphPin* FalsePin = Node->FindPin(TEXT("else"), EGPD_Output);
+            if (FalsePin) AddMeta(TEXT("meta.branchFalsePinId"), FalsePin->PinId.ToString());
+        }
+
+        // --- Task 23: Sequence node — ordered output exec pin IDs for sequential control flow ---
+        if (UK2Node_ExecutionSequence* Sequence = Cast<UK2Node_ExecutionSequence>(K2))
+        {
+            AddMetaBool(TEXT("meta.isSequence"), true);
+            TArray<FString> OutputPinIds;
+            for (UEdGraphPin* Pin : Node->Pins)
+            {
+                if (Pin && Pin->Direction == EGPD_Output &&
+                    Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec)
+                {
+                    OutputPinIds.Add(Pin->PinId.ToString());
+                }
+            }
+            AddMeta(TEXT("meta.sequenceOutputCount"), FString::FromInt(OutputPinIds.Num()));
+            if (OutputPinIds.Num() > 0)
+                AddMeta(TEXT("meta.sequenceOutputPinIds"), FString::Join(OutputPinIds, TEXT(";")));
+        }
+
+        // --- Task 24: Reroute (Knot) node — transparent data pass-through, emit input/output pin IDs ---
+        if (UK2Node_Knot* Knot = Cast<UK2Node_Knot>(K2))
+        {
+            AddMetaBool(TEXT("meta.isReroute"), true);
+            UEdGraphPin* InPin = nullptr;
+            UEdGraphPin* OutPin = nullptr;
+            for (UEdGraphPin* Pin : Node->Pins)
+            {
+                if (!Pin) continue;
+                if (Pin->Direction == EGPD_Input  && !InPin)  InPin  = Pin;
+                if (Pin->Direction == EGPD_Output && !OutPin) OutPin = Pin;
+            }
+            if (InPin)  AddMeta(TEXT("meta.rerouteInputPinId"),  InPin->PinId.ToString());
+            if (OutPin) AddMeta(TEXT("meta.rerouteOutputPinId"), OutPin->PinId.ToString());
+        }
+
+        // --- Task 25: Self node — explicit self-reference marker for `this` resolution ---
+        if (UK2Node_Self* Self = Cast<UK2Node_Self>(K2))
+        {
+            AddMetaBool(TEXT("meta.isSelf"), true);
+        }
+
+        // --- Task 26: SpawnActorFromClass node — class + return pin IDs for actor spawn reconstruction ---
+        if (UK2Node_SpawnActorFromClass* SpawnActor = Cast<UK2Node_SpawnActorFromClass>(K2))
+        {
+            AddMetaBool(TEXT("meta.isSpawnActor"), true);
+            auto EmitSpawnPinId = [&](const TCHAR* PinName, EEdGraphPinDirection Dir, const TCHAR* MetaKey)
+            {
+                UEdGraphPin* Pin = Node->FindPin(FName(PinName), Dir);
+                if (Pin) AddMeta(MetaKey, Pin->PinId.ToString());
+            };
+            EmitSpawnPinId(TEXT("Class"),           EGPD_Input,  TEXT("meta.spawnClassPinId"));
+            EmitSpawnPinId(TEXT("SpawnTransform"),  EGPD_Input,  TEXT("meta.spawnTransformPinId"));
+            EmitSpawnPinId(TEXT("ReturnValue"),     EGPD_Output, TEXT("meta.spawnReturnPinId"));
         }
 
 		if (UK2Node_CallParentFunction* ParentCall = Cast<UK2Node_CallParentFunction>(K2))

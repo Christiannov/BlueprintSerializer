@@ -1461,6 +1461,13 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     int32 NodesWithCollapsedGraph = 0;
     int32 ExportsWithBytecodeNodeTraces = 0;
     int32 BytecodeNodeTracesTotal = 0;
+    // Tasks 22-26: baseline metrics for Branch/Sequence/Reroute/Self/SpawnActor/Timeline
+    int32 NodesWithBranch = 0;
+    int32 NodesWithSequence = 0;
+    int32 NodesWithReroute = 0;
+    int32 NodesWithSelf = 0;
+    int32 NodesWithSpawnActor = 0;
+    int32 NodesWithTimelineExecPins = 0;
 
     const int32 RawBlueprintFileCount = BlueprintFileNames.Num();
     TMap<FString, FString> SelectedFileByBlueprintPath;
@@ -2223,6 +2230,13 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
                     if (NodeProps->HasField(TEXT("meta.selectIndexPinId"))) NodesWithSelectPinIds++;
                     if (NodeProps->HasField(TEXT("meta.isLoopMacro")))      NodesWithLoopMacro++;
                     if (NodeProps->HasField(TEXT("meta.isCollapsedGraph"))) NodesWithCollapsedGraph++;
+                    // Tasks 22-26: count new control-flow node enrichment fields
+                    if (NodeProps->HasField(TEXT("meta.isBranch")))          NodesWithBranch++;
+                    if (NodeProps->HasField(TEXT("meta.isSequence")))        NodesWithSequence++;
+                    if (NodeProps->HasField(TEXT("meta.isReroute")))         NodesWithReroute++;
+                    if (NodeProps->HasField(TEXT("meta.isSelf")))            NodesWithSelf++;
+                    if (NodeProps->HasField(TEXT("meta.isSpawnActor")))      NodesWithSpawnActor++;
+                    if (NodeProps->HasField(TEXT("meta.timelinePlayPinId"))) NodesWithTimelineExecPins++;
                 }
             }
         }
@@ -2240,7 +2254,7 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
                     const TSharedPtr<FJsonObject> FuncObj = FuncValue.IsValid() ? FuncValue->AsObject() : nullptr;
                     if (!FuncObj.IsValid()) continue;
                     const TArray<TSharedPtr<FJsonValue>>* TracesArr = nullptr;
-                    if (FuncObj->TryGetArrayField(TEXT("bytecodeNodeGuids"), TracesArr) && TracesArr && TracesArr->Num() > 0)
+                    if (FuncObj->TryGetArrayField(TEXT("nodeTraces"), TracesArr) && TracesArr && TracesArr->Num() > 0)
                     {
                         bExportHasTraces = true;
                         BytecodeNodeTracesTotal += TracesArr->Num();
@@ -2415,6 +2429,13 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     Metrics->SetNumberField(TEXT("nodesWithCollapsedGraph"), NodesWithCollapsedGraph);
     Metrics->SetNumberField(TEXT("exportsWithBytecodeNodeTraces"), ExportsWithBytecodeNodeTraces);
     Metrics->SetNumberField(TEXT("bytecodeNodeTracesTotal"), BytecodeNodeTracesTotal);
+    // Tasks 22-26: control-flow node enrichment baseline metrics
+    Metrics->SetNumberField(TEXT("nodesWithBranch"),           NodesWithBranch);
+    Metrics->SetNumberField(TEXT("nodesWithSequence"),         NodesWithSequence);
+    Metrics->SetNumberField(TEXT("nodesWithReroute"),          NodesWithReroute);
+    Metrics->SetNumberField(TEXT("nodesWithSelf"),             NodesWithSelf);
+    Metrics->SetNumberField(TEXT("nodesWithSpawnActor"),       NodesWithSpawnActor);
+    Metrics->SetNumberField(TEXT("nodesWithTimelineExecPins"), NodesWithTimelineExecPins);
     Report->SetObjectField(TEXT("metrics"), Metrics);
 
     Report->SetArrayField(TEXT("missingTopLevelKeys"), [&MissingTopLevelKeys]()
