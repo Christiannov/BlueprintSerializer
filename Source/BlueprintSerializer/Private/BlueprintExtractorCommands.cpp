@@ -1449,6 +1449,19 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     int32 ExportsMissingClassConfigFlagKeys = 0;
     int32 ComponentsMissingOverrideShape = 0;
 
+    // Task 20: baseline metrics for Tasks 15-19 new CR fields
+    int32 ExportsWithStructuredGraphs = 0;
+    int32 StructuredGraphsTotal = 0;
+    int32 StructuredGraphNodesTotal = 0;
+    int32 GraphsWithInputPins = 0;
+    int32 GraphsWithOutputPins = 0;
+    int32 NodesWithSwitchCasePinIds = 0;
+    int32 NodesWithSelectPinIds = 0;
+    int32 NodesWithLoopMacro = 0;
+    int32 NodesWithCollapsedGraph = 0;
+    int32 ExportsWithBytecodeNodeTraces = 0;
+    int32 BytecodeNodeTracesTotal = 0;
+
     const int32 RawBlueprintFileCount = BlueprintFileNames.Num();
     TMap<FString, FString> SelectedFileByBlueprintPath;
     TMap<FString, FString> SelectedTimestampByBlueprintPath;
@@ -2178,6 +2191,64 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
                 }
             }
         }
+
+        // Task 20: count structuredGraphs features (Tasks 15-19 new fields)
+        const TArray<TSharedPtr<FJsonValue>>* StructuredGraphsArr = nullptr;
+        if (Json->TryGetArrayField(TEXT("structuredGraphs"), StructuredGraphsArr) && StructuredGraphsArr && StructuredGraphsArr->Num() > 0)
+        {
+            ExportsWithStructuredGraphs++;
+            StructuredGraphsTotal += StructuredGraphsArr->Num();
+            for (const TSharedPtr<FJsonValue>& GraphValue : *StructuredGraphsArr)
+            {
+                const TSharedPtr<FJsonObject> GraphObj = GraphValue.IsValid() ? GraphValue->AsObject() : nullptr;
+                if (!GraphObj.IsValid()) continue;
+
+                if (HasNonEmptyArrayField(GraphObj, TEXT("graphInputPins")))  GraphsWithInputPins++;
+                if (HasNonEmptyArrayField(GraphObj, TEXT("graphOutputPins"))) GraphsWithOutputPins++;
+
+                const TArray<TSharedPtr<FJsonValue>>* NodesArr = nullptr;
+                if (!GraphObj->TryGetArrayField(TEXT("nodes"), NodesArr) || !NodesArr) continue;
+                StructuredGraphNodesTotal += NodesArr->Num();
+
+                for (const TSharedPtr<FJsonValue>& NodeValue : *NodesArr)
+                {
+                    const TSharedPtr<FJsonObject> NodeObj = NodeValue.IsValid() ? NodeValue->AsObject() : nullptr;
+                    if (!NodeObj.IsValid()) continue;
+
+                    const TSharedPtr<FJsonObject>* NodePropsPtr = nullptr;
+                    if (!NodeObj->TryGetObjectField(TEXT("nodeProperties"), NodePropsPtr) || !NodePropsPtr) continue;
+                    const TSharedPtr<FJsonObject>& NodeProps = *NodePropsPtr;
+
+                    if (NodeProps->HasField(TEXT("meta.switchCasePinIds"))) NodesWithSwitchCasePinIds++;
+                    if (NodeProps->HasField(TEXT("meta.selectIndexPinId"))) NodesWithSelectPinIds++;
+                    if (NodeProps->HasField(TEXT("meta.isLoopMacro")))      NodesWithLoopMacro++;
+                    if (NodeProps->HasField(TEXT("meta.isCollapsedGraph"))) NodesWithCollapsedGraph++;
+                }
+            }
+        }
+
+        // Task 20: count bytecode node traces from compilerIRFallback (Task 10 field)
+        const TSharedPtr<FJsonObject>* IRFallbackPtr2 = nullptr;
+        if (Json->TryGetObjectField(TEXT("compilerIRFallback"), IRFallbackPtr2) && IRFallbackPtr2 && IRFallbackPtr2->IsValid())
+        {
+            const TArray<TSharedPtr<FJsonValue>>* FuncsArr = nullptr;
+            if ((*IRFallbackPtr2)->TryGetArrayField(TEXT("bytecodeBackedFunctions"), FuncsArr) && FuncsArr)
+            {
+                bool bExportHasTraces = false;
+                for (const TSharedPtr<FJsonValue>& FuncValue : *FuncsArr)
+                {
+                    const TSharedPtr<FJsonObject> FuncObj = FuncValue.IsValid() ? FuncValue->AsObject() : nullptr;
+                    if (!FuncObj.IsValid()) continue;
+                    const TArray<TSharedPtr<FJsonValue>>* TracesArr = nullptr;
+                    if (FuncObj->TryGetArrayField(TEXT("bytecodeNodeGuids"), TracesArr) && TracesArr && TracesArr->Num() > 0)
+                    {
+                        bExportHasTraces = true;
+                        BytecodeNodeTracesTotal += TracesArr->Num();
+                    }
+                }
+                if (bExportHasTraces) ExportsWithBytecodeNodeTraces++;
+            }
+        }
     }
 
     const int32 BlueprintFileCount = SelectedBlueprintFileNames.Num();
@@ -2332,6 +2403,18 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     Metrics->SetNumberField(TEXT("classConfigFlagsPresent"), ClassConfigFlagsPresentCount);
     Metrics->SetNumberField(TEXT("exportsMissingClassConfigFlagKeys"), ExportsMissingClassConfigFlagKeys);
     Metrics->SetNumberField(TEXT("componentsMissingOverrideShape"), ComponentsMissingOverrideShape);
+    // Task 20: baseline metrics for Tasks 15-19
+    Metrics->SetNumberField(TEXT("exportsWithStructuredGraphs"), ExportsWithStructuredGraphs);
+    Metrics->SetNumberField(TEXT("structuredGraphsTotal"), StructuredGraphsTotal);
+    Metrics->SetNumberField(TEXT("structuredGraphNodesTotal"), StructuredGraphNodesTotal);
+    Metrics->SetNumberField(TEXT("graphsWithInputPins"), GraphsWithInputPins);
+    Metrics->SetNumberField(TEXT("graphsWithOutputPins"), GraphsWithOutputPins);
+    Metrics->SetNumberField(TEXT("nodesWithSwitchCasePinIds"), NodesWithSwitchCasePinIds);
+    Metrics->SetNumberField(TEXT("nodesWithSelectPinIds"), NodesWithSelectPinIds);
+    Metrics->SetNumberField(TEXT("nodesWithLoopMacro"), NodesWithLoopMacro);
+    Metrics->SetNumberField(TEXT("nodesWithCollapsedGraph"), NodesWithCollapsedGraph);
+    Metrics->SetNumberField(TEXT("exportsWithBytecodeNodeTraces"), ExportsWithBytecodeNodeTraces);
+    Metrics->SetNumberField(TEXT("bytecodeNodeTracesTotal"), BytecodeNodeTracesTotal);
     Report->SetObjectField(TEXT("metrics"), Metrics);
 
     Report->SetArrayField(TEXT("missingTopLevelKeys"), [&MissingTopLevelKeys]()

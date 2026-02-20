@@ -612,6 +612,10 @@ struct BLUEPRINTSERIALIZER_API FBS_GraphData_Ext
     UPROPERTY() TArray<FBS_NodeData> Nodes;
     UPROPERTY() TArray<FBS_FlowEdge> Execution;
     UPROPERTY() TArray<FBS_PinLinkData> DataLinks;
+    // Task 19: cross-linkage – pin GUIDs on FunctionEntry outputs (graph data inputs)
+    //          and FunctionResult inputs (graph data outputs)
+    UPROPERTY() TArray<FString> GraphInputPins;
+    UPROPERTY() TArray<FString> GraphOutputPins;
 };
 
 /**

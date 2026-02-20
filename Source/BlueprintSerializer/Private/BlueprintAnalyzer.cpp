@@ -97,6 +97,7 @@
 #include "K2Node_SwitchInteger.h"
 #include "K2Node_SwitchName.h"
 #include "K2Node_SwitchString.h"
+#include "K2Node_Composite.h"
 #include "K2Node_MakeStruct.h"
 #include "K2Node_BreakStruct.h"
 #include "K2Node_StructOperation.h"
@@ -2631,6 +2632,40 @@ TArray<FBS_GraphData_Ext> UBlueprintAnalyzer::ExtractStructuredGraphsExt(UBluepr
 		}
 	};
 
+	// Task 19: sweep a finished graph for FunctionEntry / FunctionResult boundary pins.
+	// FunctionEntry output data pins → GraphInputPins (what flows INTO this graph from callers).
+	// FunctionResult input data pins → GraphOutputPins (what flows OUT of this graph to callers).
+	auto SweepGraphBoundaryPins = [&](UEdGraph* Graph, FBS_GraphData_Ext& GraphData)
+	{
+		if (!Graph) return;
+		for (UEdGraphNode* GNode : Graph->Nodes)
+		{
+			if (!GNode) continue;
+			if (UK2Node_FunctionEntry* EntryNode = Cast<UK2Node_FunctionEntry>(GNode))
+			{
+				for (UEdGraphPin* Pin : EntryNode->Pins)
+				{
+					if (Pin && Pin->Direction == EGPD_Output &&
+						Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+					{
+						GraphData.GraphInputPins.Add(Pin->PinId.ToString());
+					}
+				}
+			}
+			if (UK2Node_FunctionResult* ResultNode = Cast<UK2Node_FunctionResult>(GNode))
+			{
+				for (UEdGraphPin* Pin : ResultNode->Pins)
+				{
+					if (Pin && Pin->Direction == EGPD_Input &&
+						Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+					{
+						GraphData.GraphOutputPins.Add(Pin->PinId.ToString());
+					}
+				}
+			}
+		}
+	};
+
 	// Process Ubergraph pages (main event graph)
 	for (UEdGraph* Graph : Blueprint->UbergraphPages)
 	{
@@ -2678,6 +2713,8 @@ TArray<FBS_GraphData_Ext> UBlueprintAnalyzer::ExtractStructuredGraphsExt(UBluepr
 				}
 			}
 			
+			// Task 19: record FunctionEntry/FunctionResult boundary pins for this graph
+			SweepGraphBoundaryPins(Graph, GraphData);
 			StructuredGraphs.Add(GraphData);
 		}
 	}
@@ -2726,6 +2763,8 @@ TArray<FBS_GraphData_Ext> UBlueprintAnalyzer::ExtractStructuredGraphsExt(UBluepr
 				}
 			}
 			
+			// Task 19: record FunctionEntry/FunctionResult boundary pins for this graph
+			SweepGraphBoundaryPins(Graph, GraphData);
 			StructuredGraphs.Add(GraphData);
 		}
 	}
@@ -2774,6 +2813,8 @@ TArray<FBS_GraphData_Ext> UBlueprintAnalyzer::ExtractStructuredGraphsExt(UBluepr
 				}
 			}
 			
+			// Task 19: record FunctionEntry/FunctionResult boundary pins for this graph
+			SweepGraphBoundaryPins(Graph, GraphData);
 			StructuredGraphs.Add(GraphData);
 		}
 	}
@@ -2820,6 +2861,8 @@ TArray<FBS_GraphData_Ext> UBlueprintAnalyzer::ExtractStructuredGraphsExt(UBluepr
 				}
 			}
 
+			// Task 19: record FunctionEntry/FunctionResult boundary pins for this graph
+			SweepGraphBoundaryPins(Graph, GraphData);
 			StructuredGraphs.Add(GraphData);
 		}
 	}
@@ -2866,6 +2909,8 @@ TArray<FBS_GraphData_Ext> UBlueprintAnalyzer::ExtractStructuredGraphsExt(UBluepr
 				}
 			}
 
+			// Task 19: record FunctionEntry/FunctionResult boundary pins for this graph
+			SweepGraphBoundaryPins(Graph, GraphData);
 			StructuredGraphs.Add(GraphData);
 		}
 	}
@@ -4470,11 +4515,31 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
             if (UEdGraph* MacroGraph = Macro->GetMacroGraph())
             {
                 AddMeta(TEXT("meta.macroGraphPath"), MacroGraph->GetPathName());
-                AddMeta(TEXT("meta.macroGraphName"), MacroGraph->GetName());
+                const FString MacroName = MacroGraph->GetName();
+                AddMeta(TEXT("meta.macroGraphName"), MacroName);
 				if (UBlueprint* MacroBlueprint = FBlueprintEditorUtils::FindBlueprintForGraph(MacroGraph))
 				{
 					AddMeta(TEXT("meta.macroBlueprintPath"), MacroBlueprint->GetPathName());
 				}
+                // Task 17: detect ForEach / ForEachWithBreak loop macros and emit pin linkage
+                const bool bIsForEach = MacroName.Contains(TEXT("ForEach"), ESearchCase::IgnoreCase);
+                if (bIsForEach)
+                {
+                    AddMetaBool(TEXT("meta.isLoopMacro"), true);
+                    // Named pins on the ForEach macro instance node
+                    auto EmitPinId = [&](const TCHAR* PinNameStr, EEdGraphPinDirection Dir, const TCHAR* MetaKey)
+                    {
+                        UEdGraphPin* Pin = Node->FindPin(FName(PinNameStr), Dir);
+                        if (Pin) { AddMeta(MetaKey, Pin->PinId.ToString()); }
+                    };
+                    EmitPinId(TEXT("Array"),        EGPD_Input,  TEXT("meta.loopArrayPinId"));
+                    EmitPinId(TEXT("Array Element"), EGPD_Output, TEXT("meta.loopElementPinId"));
+                    EmitPinId(TEXT("Array Index"),   EGPD_Output, TEXT("meta.loopIndexPinId"));
+                    EmitPinId(TEXT("Loop Body"),     EGPD_Output, TEXT("meta.loopBodyPinId"));
+                    EmitPinId(TEXT("Completed"),     EGPD_Output, TEXT("meta.loopCompletedPinId"));
+                    // ForEachWithBreak additionally has a Break exec input
+                    EmitPinId(TEXT("Break"),         EGPD_Input,  TEXT("meta.loopBreakPinId"));
+                }
             }
         }
 
@@ -4631,18 +4696,38 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
         if (UK2Node_Select* Select = Cast<UK2Node_Select>(K2))
         {
             AddMetaBool(TEXT("meta.isSelect"), true);
-            // Count option inputs (all non-exec inputs except index pin)
+            // Task 16: emit full pin-ID mapping for Index, Return, and all option pins
+            TArray<FString> OptionPinIds, OptionPinNames;
             int32 OptionCount = 0;
             for (UEdGraphPin* Pin : Node->Pins)
             {
-                if (Pin && Pin->Direction == EGPD_Input &&
-                    Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec &&
-                    Pin->PinName != TEXT("Index"))
+                if (!Pin) continue;
+                if (Pin->Direction == EGPD_Input &&
+                    Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
                 {
-                    OptionCount++;
+                    if (Pin->PinName == TEXT("Index"))
+                    {
+                        AddMeta(TEXT("meta.selectIndexPinId"), Pin->PinId.ToString());
+                    }
+                    else
+                    {
+                        OptionPinIds.Add(Pin->PinId.ToString());
+                        OptionPinNames.Add(Pin->PinName.ToString());
+                        OptionCount++;
+                    }
+                }
+                else if (Pin->Direction == EGPD_Output &&
+                         Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+                {
+                    AddMeta(TEXT("meta.selectReturnPinId"), Pin->PinId.ToString());
                 }
             }
             AddMeta(TEXT("meta.selectOptionCount"), FString::FromInt(OptionCount));
+            if (OptionPinIds.Num() > 0)
+            {
+                AddMeta(TEXT("meta.selectOptionPinIds"),   FString::Join(OptionPinIds,   TEXT(";")));
+                AddMeta(TEXT("meta.selectOptionPinNames"), FString::Join(OptionPinNames, TEXT(";")));
+            }
         }
 
         // --- Switch nodes: control-flow branching on value ---
@@ -4665,6 +4750,22 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
                     AddMeta(TEXT("meta.switchCases"), FString::Join(Cases, TEXT(",")));
                 }
                 AddMeta(TEXT("meta.switchCaseCount"), FString::FromInt(Cases.Num()));
+                // Task 15: emit output exec pin GUIDs per case, plus default pin GUID
+                TArray<FString> CasePinIds;
+                for (const FName& Entry : SwitchEnum->EnumEntries)
+                {
+                    UEdGraphPin* CasePin = Node->FindPin(Entry, EGPD_Output);
+                    CasePinIds.Add(CasePin ? CasePin->PinId.ToString() : FString());
+                }
+                if (CasePinIds.Num() > 0)
+                {
+                    AddMeta(TEXT("meta.switchCasePinIds"), FString::Join(CasePinIds, TEXT(";")));
+                }
+                UEdGraphPin* DefaultPin = Node->FindPin(TEXT("Default"), EGPD_Output);
+                if (DefaultPin)
+                {
+                    AddMeta(TEXT("meta.switchDefaultPinId"), DefaultPin->PinId.ToString());
+                }
             }
         }
 
@@ -4673,18 +4774,29 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
             AddMetaBool(TEXT("meta.isSwitch"), true);
             AddMeta(TEXT("meta.switchType"), TEXT("Integer"));
             AddMeta(TEXT("meta.switchStartIndex"), FString::FromInt(SwitchInt->StartIndex));
-            // Count exec output pins (each is a case; subtract Default pin)
-            int32 CaseCount = 0;
+            // Task 15: collect case pin IDs and corresponding integer values
+            TArray<FString> CasePinIds, CaseValues;
             for (UEdGraphPin* Pin : Node->Pins)
             {
                 if (Pin && Pin->Direction == EGPD_Output &&
                     Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec &&
                     Pin->PinName != TEXT("Default"))
                 {
-                    CaseCount++;
+                    CasePinIds.Add(Pin->PinId.ToString());
+                    CaseValues.Add(Pin->PinName.ToString()); // name is the integer value string
                 }
             }
-            AddMeta(TEXT("meta.switchCaseCount"), FString::FromInt(CaseCount));
+            AddMeta(TEXT("meta.switchCaseCount"), FString::FromInt(CasePinIds.Num()));
+            if (CasePinIds.Num() > 0)
+            {
+                AddMeta(TEXT("meta.switchCasePinIds"), FString::Join(CasePinIds, TEXT(";")));
+                AddMeta(TEXT("meta.switchCaseValues"), FString::Join(CaseValues, TEXT(";")));
+            }
+            UEdGraphPin* DefaultPin = Node->FindPin(TEXT("Default"), EGPD_Output);
+            if (DefaultPin)
+            {
+                AddMeta(TEXT("meta.switchDefaultPinId"), DefaultPin->PinId.ToString());
+            }
         }
 
         if (UK2Node_SwitchName* SwitchName = Cast<UK2Node_SwitchName>(K2))
@@ -4692,15 +4804,31 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
             AddMetaBool(TEXT("meta.isSwitch"), true);
             AddMeta(TEXT("meta.switchType"), TEXT("Name"));
             TArray<FString> Cases;
-            for (const FName& PinName : SwitchName->PinNames)
+            for (const FName& PinNameEntry : SwitchName->PinNames)
             {
-                Cases.Add(PinName.ToString());
+                Cases.Add(PinNameEntry.ToString());
             }
             if (Cases.Num() > 0)
             {
                 AddMeta(TEXT("meta.switchCases"), FString::Join(Cases, TEXT(",")));
             }
             AddMeta(TEXT("meta.switchCaseCount"), FString::FromInt(Cases.Num()));
+            // Task 15: emit output exec pin GUIDs per case name, plus default pin GUID
+            TArray<FString> CasePinIds;
+            for (const FName& PinNameEntry : SwitchName->PinNames)
+            {
+                UEdGraphPin* CasePin = Node->FindPin(PinNameEntry, EGPD_Output);
+                CasePinIds.Add(CasePin ? CasePin->PinId.ToString() : FString());
+            }
+            if (CasePinIds.Num() > 0)
+            {
+                AddMeta(TEXT("meta.switchCasePinIds"), FString::Join(CasePinIds, TEXT(";")));
+            }
+            UEdGraphPin* DefaultPin = Node->FindPin(TEXT("Default"), EGPD_Output);
+            if (DefaultPin)
+            {
+                AddMeta(TEXT("meta.switchDefaultPinId"), DefaultPin->PinId.ToString());
+            }
         }
 
         if (UK2Node_SwitchString* SwitchStr = Cast<UK2Node_SwitchString>(K2))
@@ -4708,9 +4836,9 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
             AddMetaBool(TEXT("meta.isSwitch"), true);
             AddMeta(TEXT("meta.switchType"), TEXT("String"));
             TArray<FString> Cases;
-            for (const FName& PinName : SwitchStr->PinNames)
+            for (const FName& PinNameEntry : SwitchStr->PinNames)
             {
-                Cases.Add(PinName.ToString());
+                Cases.Add(PinNameEntry.ToString());
             }
             if (Cases.Num() > 0)
             {
@@ -4718,6 +4846,49 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
             }
             AddMeta(TEXT("meta.switchCaseCount"), FString::FromInt(Cases.Num()));
             AddMetaBool(TEXT("meta.switchIsCaseSensitive"), SwitchStr->bIsCaseSensitive != 0);
+            // Task 15: emit output exec pin GUIDs per case name, plus default pin GUID
+            TArray<FString> CasePinIds;
+            for (const FName& PinNameEntry : SwitchStr->PinNames)
+            {
+                UEdGraphPin* CasePin = Node->FindPin(PinNameEntry, EGPD_Output);
+                CasePinIds.Add(CasePin ? CasePin->PinId.ToString() : FString());
+            }
+            if (CasePinIds.Num() > 0)
+            {
+                AddMeta(TEXT("meta.switchCasePinIds"), FString::Join(CasePinIds, TEXT(";")));
+            }
+            UEdGraphPin* DefaultPin = Node->FindPin(TEXT("Default"), EGPD_Output);
+            if (DefaultPin)
+            {
+                AddMeta(TEXT("meta.switchDefaultPinId"), DefaultPin->PinId.ToString());
+            }
+        }
+
+        // --- Task 18: Composite (collapsed graph / tunnel) node ---
+        if (UK2Node_Composite* Composite = Cast<UK2Node_Composite>(K2))
+        {
+            AddMetaBool(TEXT("meta.isCollapsedGraph"), true);
+            if (UEdGraph* BoundGraph = Composite->BoundGraph)
+            {
+                AddMeta(TEXT("meta.collapsedGraphName"), BoundGraph->GetName());
+                AddMeta(TEXT("meta.collapsedGraphPath"), BoundGraph->GetPathName());
+            }
+            // Collect non-exec data pins on the composite node itself:
+            // input data pins = inputs flowing into the collapsed graph
+            // output data pins = outputs flowing out of the collapsed graph
+            TArray<FString> InputPins, OutputPins;
+            for (UEdGraphPin* Pin : Node->Pins)
+            {
+                if (!Pin || Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec) continue;
+                if (Pin->Direction == EGPD_Input)
+                    InputPins.Add(Pin->PinName.ToString());
+                else if (Pin->Direction == EGPD_Output)
+                    OutputPins.Add(Pin->PinName.ToString());
+            }
+            if (InputPins.Num() > 0)
+                AddMeta(TEXT("meta.collapsedInputPins"),  FString::Join(InputPins,  TEXT(";")));
+            if (OutputPins.Num() > 0)
+                AddMeta(TEXT("meta.collapsedOutputPins"), FString::Join(OutputPins, TEXT(";")));
         }
 
         // --- DynamicCast: add pure-cast flag to existing handler output ---
@@ -5994,10 +6165,26 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
             FlowsObj->SetArrayField(TEXT("data"), DataArray);
             
             GraphObj->SetObjectField(TEXT("flows"), FlowsObj);
-            
+
+            // Task 19: emit graph-level boundary pin GUIDs
+            if (GraphData.GraphInputPins.Num() > 0)
+            {
+                TArray<TSharedPtr<FJsonValue>> InputPinsArr;
+                for (const FString& PinId : GraphData.GraphInputPins)
+                    InputPinsArr.Add(MakeShareable(new FJsonValueString(PinId)));
+                GraphObj->SetArrayField(TEXT("graphInputPins"), InputPinsArr);
+            }
+            if (GraphData.GraphOutputPins.Num() > 0)
+            {
+                TArray<TSharedPtr<FJsonValue>> OutputPinsArr;
+                for (const FString& PinId : GraphData.GraphOutputPins)
+                    OutputPinsArr.Add(MakeShareable(new FJsonValueString(PinId)));
+                GraphObj->SetArrayField(TEXT("graphOutputPins"), OutputPinsArr);
+            }
+
             GraphsArray.Add(MakeShareable(new FJsonValueObject(GraphObj)));
         }
-        
+
         // Override structuredGraphs with the properly formatted version
         JsonObject->SetArrayField(TEXT("structuredGraphs"), GraphsArray);
         

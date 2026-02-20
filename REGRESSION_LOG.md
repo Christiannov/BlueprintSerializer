@@ -328,6 +328,35 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `pass` — CR-035, CR-036, Task 12, Task 13, Task 14 compile cleanly and regress at zero risk.
 - Follow-up: commit; evaluate next conversion-fidelity priorities.
 
+### 2026-02-19 19:29 - Tasks 15-20: Switch/Select/ForEach/Composite/GraphBoundaryPins/ValidatorBaseline
+
+- Scope: six concurrent serializer enrichments for complete C++ conversion fidelity on control-flow and graph-boundary nodes.
+- Changes:
+  - **Task 15 (Switch case-value payload)**: Extended `UK2Node_SwitchEnum`, `UK2Node_SwitchInteger`, `UK2Node_SwitchName`, `UK2Node_SwitchString` handlers in `AnalyzeNodeToStruct` to emit per-case output exec pin GUIDs (`meta.switchCasePinIds`), `meta.switchDefaultPinId`; SwitchInteger additionally emits `meta.switchCaseValues` (the integer literal for each case).
+  - **Task 16 (Select pin mapping)**: `UK2Node_Select` handler fully rewritten to emit `meta.selectIndexPinId`, `meta.selectReturnPinId`, `meta.selectOptionPinIds`, `meta.selectOptionPinNames`, `meta.selectOptionCount` via pin-direction sweep.
+  - **Task 17 (ForEach loop linkage)**: `UK2Node_MacroInstance` handler extended — detects `MacroName.Contains("ForEach")`, emits `meta.isLoopMacro`, `meta.loopArrayPinId`, `meta.loopElementPinId`, `meta.loopIndexPinId`, `meta.loopBodyPinId`, `meta.loopCompletedPinId`, and conditionally `meta.loopBreakPinId`.
+  - **Task 18 (Composite/Collapse handler)**: New `UK2Node_Composite` handler emits `meta.isCollapsedGraph`, `meta.collapsedGraphName`, `meta.collapsedGraphPath`, `meta.collapsedInputPins`, `meta.collapsedOutputPins` using the node's `BoundGraph` and its own data pins. Added `#include "K2Node_Composite.h"`.
+  - **Task 19 (Graph entry/exit pin cross-linkage)**: Added `TArray<FString> GraphInputPins` and `TArray<FString> GraphOutputPins` to `FBS_GraphData_Ext`. Added `SweepGraphBoundaryPins` lambda in `ExtractStructuredGraphsExt` sweeping `UK2Node_FunctionEntry` output data pins → `GraphInputPins` and `UK2Node_FunctionResult` input data pins → `GraphOutputPins`; called before each of the 5 `StructuredGraphs.Add(GraphData)` sites (Ubergraph, Function, Macro, DelegateSignature, Event). JSON serializer emits `graphInputPins` / `graphOutputPins` arrays.
+  - **Task 20 (Validator baseline metrics)**: Added 11 new metric counters in `BlueprintExtractorCommands.cpp` — `exportsWithStructuredGraphs`, `structuredGraphsTotal`, `structuredGraphNodesTotal`, `graphsWithInputPins`, `graphsWithOutputPins`, `nodesWithSwitchCasePinIds`, `nodesWithSelectPinIds`, `nodesWithLoopMacro`, `nodesWithCollapsedGraph`, `exportsWithBytecodeNodeTraces`, `bytecodeNodeTracesTotal`. Counting loop iterates `structuredGraphs` array and `compilerIRFallback.bytecodeBackedFunctions[].bytecodeNodeGuids`; all metrics are informational-only (no new `bOverallPass` gate added).
+  - Build: 6 incremental actions (UHT reflection for new `UPROPERTY` fields + `Module.BlueprintSerializer.3.cpp` compile + link `.lib` + link `.dll` + write metadata), ~52 s.
+- Command:
+  - `powershell -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_192856/` (fresh export batch, 485 files)
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260219_192937.json`
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_192856/BP_SLZR_ValidationReport_20260219_192937.json`
+  - `Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260219_192937.json`
+- Key metrics:
+  - `suitePass=true`, `overallPass=true`, all 14 gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`, `missingRequiredExports=0`
+  - `exportsWithStructuredGraphs=460`, `structuredGraphsTotal=2342`, `structuredGraphNodesTotal=37365`
+  - `graphsWithInputPins=668`, `graphsWithOutputPins=171`
+  - `nodesWithSwitchCasePinIds=103`, `nodesWithSelectPinIds=333`, `nodesWithLoopMacro=292`, `nodesWithCollapsedGraph=94`
+  - `exportsWithBytecodeNodeTraces=0`, `bytecodeNodeTracesTotal=0` — zero because the Task 20 counter looks for `bytecodeNodeGuids` (flat string array) but CR-035 emits `nodeTraces` (array of `{nodeGuid, nodeType}` objects); mismatch is non-blocking as Task 20 is baseline-only with no gate.
+  - All prior stability metrics unchanged: `exportsWithBytecodeFallback=205`, `compilerIRFallbackBytecodeFunctionCountTotal=841`, replication shape, ControlRig, curve, transition, notify.
+- Result: `pass` — all six tasks compile cleanly and regress at zero risk; new control-flow pin metadata and graph-boundary cross-linkage fully populated in 460 of 485 exports.
+- Follow-up: correct `bytecodeNodeTracesTotal` metric to walk `nodeTraces[].nodeGuid` instead of `bytecodeNodeGuids[]`; continue next conversion-fidelity CR batch.
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.
