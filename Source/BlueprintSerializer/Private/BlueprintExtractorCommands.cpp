@@ -1478,6 +1478,25 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     int32 NodesWithEnumEquality = 0;
     int32 NodesWithEnumInequality = 0;
     int32 NodesWithSetPersistentFrame = 0;
+    // Task 33-50: new node handler metric counters
+    int32 NodesWithCallMaterialParamCollection = 0;
+    int32 NodesWithGetSubsystem = 0;
+    int32 NodesWithBaseAsyncTask = 0;
+    int32 NodesWithAddComponent = 0;
+    int32 NodesWithSetFieldsInStruct = 0;
+    int32 NodesWithAsyncAction = 0;
+    int32 NodesWithDelegateOp = 0;
+    int32 NodesWithInterfaceMessage = 0;
+    int32 NodesWithCreateObject = 0;
+    int32 NodesWithFormatText = 0;
+    int32 NodesWithInputKey = 0;
+    int32 NodesWithMathExpression = 0;
+    int32 NodesWithEnhancedInputAction = 0;
+    int32 NodesWithAssignmentStatement = 0;
+    int32 NodesWithTemporaryVariable = 0;
+    int32 NodesWithPropertyAccess = 0;
+    int32 NodesWithGetDataTableRow = 0;
+    int32 NodesWithGetEnumeratorName = 0;
 
     const int32 RawBlueprintFileCount = BlueprintFileNames.Num();
     TMap<FString, FString> SelectedFileByBlueprintPath;
@@ -2257,6 +2276,26 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
                     if (NodeProps->HasField(TEXT("meta.isEnumEquality")))         NodesWithEnumEquality++;
                     if (NodeProps->HasField(TEXT("meta.isEnumInequality")))       NodesWithEnumInequality++;
                     if (NodeProps->HasField(TEXT("meta.isSetPersistentFrame")))   NodesWithSetPersistentFrame++;
+                    // Task 33-50: new node handler counters
+                    if (NodeProps->HasField(TEXT("meta.isCallMaterialParamCollection"))) NodesWithCallMaterialParamCollection++;
+                    if (NodeProps->HasField(TEXT("meta.isGetSubsystem")))         NodesWithGetSubsystem++;
+                    if (NodeProps->HasField(TEXT("meta.isBaseAsyncTask")))        NodesWithBaseAsyncTask++;
+                    if (NodeProps->HasField(TEXT("meta.isAddComponent")))         NodesWithAddComponent++;
+                    if (NodeProps->HasField(TEXT("meta.isSetFieldsInStruct")))    NodesWithSetFieldsInStruct++;
+                    if (NodeProps->HasField(TEXT("meta.isAsyncAction")))          NodesWithAsyncAction++;
+                    if (NodeProps->HasField(TEXT("meta.delegateOp")))             NodesWithDelegateOp++;
+                    if (NodeProps->HasField(TEXT("meta.isInterfaceMessage")))     NodesWithInterfaceMessage++;
+                    if (NodeProps->HasField(TEXT("meta.isGenericCreateObject")) ||
+                        NodeProps->HasField(TEXT("meta.isCreateWidget")))         NodesWithCreateObject++;
+                    if (NodeProps->HasField(TEXT("meta.isFormatText")))           NodesWithFormatText++;
+                    if (NodeProps->HasField(TEXT("meta.isInputKey")))             NodesWithInputKey++;
+                    if (NodeProps->HasField(TEXT("meta.isMathExpression")))       NodesWithMathExpression++;
+                    if (NodeProps->HasField(TEXT("meta.isEnhancedInputAction")))  NodesWithEnhancedInputAction++;
+                    if (NodeProps->HasField(TEXT("meta.isAssignmentStatement")))  NodesWithAssignmentStatement++;
+                    if (NodeProps->HasField(TEXT("meta.isTemporaryVariable")))    NodesWithTemporaryVariable++;
+                    if (NodeProps->HasField(TEXT("meta.isPropertyAccess")))       NodesWithPropertyAccess++;
+                    if (NodeProps->HasField(TEXT("meta.isGetDataTableRow")))      NodesWithGetDataTableRow++;
+                    if (NodeProps->HasField(TEXT("meta.isGetEnumeratorName")))    NodesWithGetEnumeratorName++;
                 }
             }
         }
@@ -2466,6 +2505,25 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     Metrics->SetNumberField(TEXT("nodesWithEnumEquality"),        NodesWithEnumEquality);
     Metrics->SetNumberField(TEXT("nodesWithEnumInequality"),      NodesWithEnumInequality);
     Metrics->SetNumberField(TEXT("nodesWithSetPersistentFrame"),  NodesWithSetPersistentFrame);
+    // Task 33-50: new node handler metrics
+    Metrics->SetNumberField(TEXT("nodesWithCallMaterialParamCollection"), NodesWithCallMaterialParamCollection);
+    Metrics->SetNumberField(TEXT("nodesWithGetSubsystem"),        NodesWithGetSubsystem);
+    Metrics->SetNumberField(TEXT("nodesWithBaseAsyncTask"),       NodesWithBaseAsyncTask);
+    Metrics->SetNumberField(TEXT("nodesWithAddComponent"),        NodesWithAddComponent);
+    Metrics->SetNumberField(TEXT("nodesWithSetFieldsInStruct"),   NodesWithSetFieldsInStruct);
+    Metrics->SetNumberField(TEXT("nodesWithAsyncAction"),         NodesWithAsyncAction);
+    Metrics->SetNumberField(TEXT("nodesWithDelegateOp"),          NodesWithDelegateOp);
+    Metrics->SetNumberField(TEXT("nodesWithInterfaceMessage"),    NodesWithInterfaceMessage);
+    Metrics->SetNumberField(TEXT("nodesWithCreateObject"),        NodesWithCreateObject);
+    Metrics->SetNumberField(TEXT("nodesWithFormatText"),          NodesWithFormatText);
+    Metrics->SetNumberField(TEXT("nodesWithInputKey"),            NodesWithInputKey);
+    Metrics->SetNumberField(TEXT("nodesWithMathExpression"),      NodesWithMathExpression);
+    Metrics->SetNumberField(TEXT("nodesWithEnhancedInputAction"), NodesWithEnhancedInputAction);
+    Metrics->SetNumberField(TEXT("nodesWithAssignmentStatement"), NodesWithAssignmentStatement);
+    Metrics->SetNumberField(TEXT("nodesWithTemporaryVariable"),   NodesWithTemporaryVariable);
+    Metrics->SetNumberField(TEXT("nodesWithPropertyAccess"),      NodesWithPropertyAccess);
+    Metrics->SetNumberField(TEXT("nodesWithGetDataTableRow"),     NodesWithGetDataTableRow);
+    Metrics->SetNumberField(TEXT("nodesWithGetEnumeratorName"),   NodesWithGetEnumeratorName);
     Report->SetObjectField(TEXT("metrics"), Metrics);
 
     Report->SetArrayField(TEXT("missingTopLevelKeys"), [&MissingTopLevelKeys]()

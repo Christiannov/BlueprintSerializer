@@ -116,6 +116,31 @@
 #include "K2Node_EnumEquality.h"
 #include "K2Node_EnumInequality.h"
 #include "K2Node_SetVariableOnPersistentFrame.h"
+// Task 33-50: additional node type handlers
+#include "K2Node_CallMaterialParameterCollectionFunction.h"
+#include "K2Node_GetSubsystem.h"
+#include "K2Node_AddComponent.h"
+#include "K2Node_SetFieldsInStruct.h"
+#include "K2Node_AsyncAction.h"
+#include "K2Node_BaseAsyncTask.h"
+#include "K2Node_BaseMCDelegate.h"
+#include "K2Node_AddDelegate.h"
+#include "K2Node_AssignDelegate.h"
+#include "K2Node_RemoveDelegate.h"
+#include "K2Node_Message.h"
+#include "K2Node_GenericCreateObject.h"
+#include "K2Node_ConstructObjectFromClass.h"
+#include "K2Node_FormatText.h"
+#include "K2Node_InputKey.h"
+#include "K2Node_MathExpression.h"
+#include "K2Node_AssignmentStatement.h"
+#include "K2Node_TemporaryVariable.h"
+#include "K2Node_GetDataTableRow.h"
+#include "K2Node_GetEnumeratorName.h"
+#include "K2Node_LatentAbilityCall.h"
+#include "K2Node_LatentGameplayTaskCall.h"
+#include "K2Node_EnhancedInputAction.h"
+#include "InputAction.h"       // UInputAction full definition (EnhancedInput module)
 #include "EdGraphSchema_K2.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
@@ -676,6 +701,31 @@ namespace
             TEXT("K2Node_EnumEquality"),                 // Task 32
             TEXT("K2Node_EnumInequality"),               // Task 32
             TEXT("K2Node_SetVariableOnPersistentFrame"), // Task 32
+            // Task 33-50: remaining partially-supported node handlers
+            TEXT("K2Node_CallMaterialParameterCollectionFunction"), // Task 33
+            TEXT("K2Node_GetSubsystem"),                            // Task 34
+            TEXT("K2Node_GetEngineSubsystem"),                      // Task 34
+            TEXT("K2Node_GetSubsystemFromPC"),                      // Task 34
+            TEXT("K2Node_LatentAbilityCall"),                       // Task 35
+            TEXT("K2Node_LatentGameplayTaskCall"),                   // Task 35
+            TEXT("K2Node_AddComponent"),                            // Task 36
+            TEXT("K2Node_SetFieldsInStruct"),                       // Task 37
+            TEXT("K2Node_AsyncAction"),                             // Task 38
+            TEXT("K2Node_AddDelegate"),                             // Task 39
+            TEXT("K2Node_AssignDelegate"),                          // Task 39
+            TEXT("K2Node_RemoveDelegate"),                          // Task 39
+            TEXT("K2Node_Message"),                                 // Task 40
+            TEXT("K2Node_GenericCreateObject"),                     // Task 41
+            TEXT("K2Node_CreateWidget"),                            // Task 41
+            TEXT("K2Node_FormatText"),                              // Task 42
+            TEXT("K2Node_InputKey"),                                // Task 43
+            TEXT("K2Node_MathExpression"),                          // Task 44
+            TEXT("K2Node_EnhancedInputAction"),                     // Task 45
+            TEXT("K2Node_AssignmentStatement"),                     // Task 46
+            TEXT("K2Node_TemporaryVariable"),                       // Task 47
+            TEXT("K2Node_PropertyAccess"),                          // Task 48
+            TEXT("K2Node_GetDataTableRow"),                         // Task 49
+            TEXT("K2Node_GetEnumeratorName"),                       // Task 50
         };
 
         return SupportedTypes.Contains(NodeType);
@@ -5292,6 +5342,461 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
                 AddMeta(TEXT("meta.persistentVarNames"),  FString::Join(VarNames,  TEXT(";")));
                 AddMeta(TEXT("meta.persistentVarPinIds"), FString::Join(VarPinIds, TEXT(";")));
                 AddMeta(TEXT("meta.persistentVarCount"),  FString::FromInt(VarNames.Num()));
+            }
+        }
+
+        // =====================================================================
+        // Tasks 33-50: remaining partially-supported K2Node type handlers
+        // =====================================================================
+
+        // --- Task 33: CallMaterialParameterCollectionFunction ---
+        // Inherits UK2Node_CallFunction — function ref already extracted by CallFunction handler.
+        // Add a marker so the converter distinguishes MPC parameter calls from generic function calls.
+        if (Cast<UK2Node_CallMaterialParameterCollectionFunction>(K2))
+        {
+            AddMetaBool(TEXT("meta.isCallMaterialParamCollection"), true);
+        }
+
+        // --- Task 34: GetSubsystem / GetEngineSubsystem / GetSubsystemFromPC ---
+        // All three inherit UK2Node_GetSubsystem; CustomClass (protected) holds the subsystem type.
+        // Use reflection to access it; GetResultPin() is public.
+        if (UK2Node_GetSubsystem* SubsysNode = Cast<UK2Node_GetSubsystem>(K2))
+        {
+            AddMetaBool(TEXT("meta.isGetSubsystem"), true);
+            // CustomClass is protected — access via reflection
+            if (FClassProperty* CCP = FindFProperty<FClassProperty>(
+                    SubsysNode->GetClass(), TEXT("CustomClass")))
+            {
+                UClass* SubsysClass = Cast<UClass>(
+                    CCP->GetObjectPropertyValue_InContainer(SubsysNode));
+                if (SubsysClass)
+                {
+                    AddMeta(TEXT("meta.subsystemClass"), SubsysClass->GetPathName());
+                    AddMeta(TEXT("meta.subsystemName"),  SubsysClass->GetName());
+                }
+            }
+            // Distinguish which subsystem accessor variant this is
+            if (Cast<UK2Node_GetEngineSubsystem>(K2))
+                AddMeta(TEXT("meta.subsystemVariant"), TEXT("Engine"));
+            else if (Cast<UK2Node_GetSubsystemFromPC>(K2))
+                AddMeta(TEXT("meta.subsystemVariant"), TEXT("LocalPlayer"));
+            else
+                AddMeta(TEXT("meta.subsystemVariant"), TEXT("World"));
+            UEdGraphPin* ResultPin = SubsysNode->GetResultPin();
+            if (ResultPin)
+                AddMeta(TEXT("meta.resultPinId"), ResultPin->PinId.ToString());
+        }
+
+        // --- Task 35: LatentAbilityCall / LatentGameplayTaskCall / AsyncAction ---
+        // All ultimately inherit UK2Node_BaseAsyncTask which carries the proxy class metadata.
+        // The proxy UPROPERTYs (ProxyFactoryFunctionName, ProxyFactoryClass, ProxyClass,
+        // ProxyActivateFunctionName) are protected — access them via the reflection system.
+        // LatentGameplayTaskCall also stores SpawnParamPins for dynamically exposed properties.
+        if (UK2Node_BaseAsyncTask* AsyncBase = Cast<UK2Node_BaseAsyncTask>(K2))
+        {
+            AddMetaBool(TEXT("meta.isBaseAsyncTask"), true);
+            UClass* AsyncClass = AsyncBase->GetClass();
+            // ProxyFactoryFunctionName (protected UPROPERTY)
+            if (FNameProperty* P = FindFProperty<FNameProperty>(
+                    AsyncClass, TEXT("ProxyFactoryFunctionName")))
+            {
+                FName Val = P->GetPropertyValue_InContainer(AsyncBase);
+                if (!Val.IsNone())
+                    AddMeta(TEXT("meta.proxyFactoryFunctionName"), Val.ToString());
+            }
+            // ProxyFactoryClass (protected UPROPERTY)
+            if (FClassProperty* P = FindFProperty<FClassProperty>(
+                    AsyncClass, TEXT("ProxyFactoryClass")))
+            {
+                UClass* Val = Cast<UClass>(P->GetObjectPropertyValue_InContainer(AsyncBase));
+                if (Val)
+                {
+                    AddMeta(TEXT("meta.proxyFactoryClass"),     Val->GetPathName());
+                    AddMeta(TEXT("meta.proxyFactoryClassName"), Val->GetName());
+                }
+            }
+            // ProxyClass (protected UPROPERTY)
+            if (FClassProperty* P = FindFProperty<FClassProperty>(
+                    AsyncClass, TEXT("ProxyClass")))
+            {
+                UClass* Val = Cast<UClass>(P->GetObjectPropertyValue_InContainer(AsyncBase));
+                if (Val)
+                {
+                    AddMeta(TEXT("meta.proxyClass"),     Val->GetPathName());
+                    AddMeta(TEXT("meta.proxyClassName"), Val->GetName());
+                }
+            }
+            // ProxyActivateFunctionName (protected UPROPERTY)
+            if (FNameProperty* P = FindFProperty<FNameProperty>(
+                    AsyncClass, TEXT("ProxyActivateFunctionName")))
+            {
+                FName Val = P->GetPropertyValue_InContainer(AsyncBase);
+                if (!Val.IsNone())
+                    AddMeta(TEXT("meta.proxyActivateFunctionName"), Val.ToString());
+            }
+
+            // Variant identification
+            if (Cast<UK2Node_LatentAbilityCall>(K2))
+                AddMeta(TEXT("meta.asyncTaskVariant"), TEXT("AbilityTask"));
+            else if (UK2Node_LatentGameplayTaskCall* TaskCall =
+                     Cast<UK2Node_LatentGameplayTaskCall>(K2))
+            {
+                AddMeta(TEXT("meta.asyncTaskVariant"), TEXT("GameplayTask"));
+                if (TaskCall->SpawnParamPins.Num() > 0)
+                {
+                    TArray<FString> PinStrs;
+                    for (const FName& PN : TaskCall->SpawnParamPins)
+                        PinStrs.Add(PN.ToString());
+                    AddMeta(TEXT("meta.spawnParamPins"),
+                        FString::Join(PinStrs, TEXT(";")));
+                    AddMeta(TEXT("meta.spawnParamPinCount"),
+                        FString::FromInt(TaskCall->SpawnParamPins.Num()));
+                }
+            }
+            else if (Cast<UK2Node_AsyncAction>(K2))
+                AddMeta(TEXT("meta.asyncTaskVariant"), TEXT("AsyncAction"));
+            else
+                AddMeta(TEXT("meta.asyncTaskVariant"), TEXT("BaseAsyncTask"));
+
+            // Collect delegate output exec pins (one per assignable delegate on the proxy class)
+            TArray<FString> DelegatePinNames;
+            for (UEdGraphPin* Pin : AsyncBase->Pins)
+            {
+                if (Pin && Pin->Direction == EGPD_Output
+                    && Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec)
+                {
+                    const FString PinName = Pin->PinName.ToString();
+                    if (!PinName.Equals(TEXT("then"), ESearchCase::IgnoreCase))
+                        DelegatePinNames.Add(PinName + TEXT(":") + Pin->PinId.ToString());
+                }
+            }
+            if (DelegatePinNames.Num() > 0)
+            {
+                AddMeta(TEXT("meta.asyncDelegatePins"),
+                    FString::Join(DelegatePinNames, TEXT(";")));
+                AddMeta(TEXT("meta.asyncDelegatePinCount"),
+                    FString::FromInt(DelegatePinNames.Num()));
+            }
+        }
+
+        // --- Task 36: AddComponent — adds a component instance defined by a CDO template ---
+        if (UK2Node_AddComponent* AddComp = Cast<UK2Node_AddComponent>(K2))
+        {
+            AddMetaBool(TEXT("meta.isAddComponent"), true);
+            if (!AddComp->TemplateBlueprint.IsEmpty())
+                AddMeta(TEXT("meta.componentTemplateBlueprint"), AddComp->TemplateBlueprint);
+            if (AddComp->TemplateType)
+            {
+                AddMeta(TEXT("meta.componentClass"),     AddComp->TemplateType->GetPathName());
+                AddMeta(TEXT("meta.componentClassName"), AddComp->TemplateType->GetName());
+            }
+            AddMetaBool(TEXT("meta.componentHasExposedVariable"),
+                AddComp->bHasExposedVariable != 0);
+            UActorComponent* CompTemplate = AddComp->GetTemplateFromNode();
+            if (CompTemplate)
+                AddMeta(TEXT("meta.componentTemplateName"), CompTemplate->GetName());
+        }
+
+        // --- Task 37: SetFieldsInStruct — impure MakeStruct variant (sets specific fields only) ---
+        if (UK2Node_SetFieldsInStruct* SetFields = Cast<UK2Node_SetFieldsInStruct>(K2))
+        {
+            AddMetaBool(TEXT("meta.isSetFieldsInStruct"), true);
+            AddMetaBool(TEXT("meta.allStructPinsShown"), SetFields->AllPinsAreShown());
+        }
+
+        // --- Task 38: AsyncAction — UBlueprintAsyncActionBase factory ---
+        // Proxy metadata already extracted by the UK2Node_BaseAsyncTask branch above.
+        if (Cast<UK2Node_AsyncAction>(K2))
+        {
+            AddMetaBool(TEXT("meta.isAsyncAction"), true);
+        }
+
+        // --- Task 39: Delegate management nodes (Add / Assign / Remove) ---
+        // All share UK2Node_BaseMCDelegate which stores the FMemberReference to the delegate property.
+        if (UK2Node_BaseMCDelegate* MCDel = Cast<UK2Node_BaseMCDelegate>(K2))
+        {
+            const FName DelegatePropName = MCDel->GetPropertyName();
+            if (!DelegatePropName.IsNone())
+                AddMeta(TEXT("meta.delegatePropertyName"), DelegatePropName.ToString());
+
+            // Owner class / package for delegate resolution
+            const FMemberReference& DelRef = MCDel->DelegateReference;
+            if (DelRef.GetMemberParentClass() != nullptr)
+                AddMeta(TEXT("meta.delegateOwnerClass"),
+                    DelRef.GetMemberParentClass()->GetPathName());
+            else if (UPackage* OwnerPkg = DelRef.GetMemberParentPackage())
+                AddMeta(TEXT("meta.delegateOwnerPackage"), OwnerPkg->GetName());
+
+            // Signature function carries the parameter type list
+            UFunction* Sig = MCDel->GetDelegateSignature();
+            if (Sig)
+            {
+                AddMeta(TEXT("meta.delegateSignatureName"), Sig->GetName());
+                if (Sig->GetOwnerClass())
+                    AddMeta(TEXT("meta.delegateSignatureClass"),
+                        Sig->GetOwnerClass()->GetPathName());
+            }
+            UEdGraphPin* DelPin = MCDel->GetDelegatePin();
+            if (DelPin)
+                AddMeta(TEXT("meta.delegatePinId"), DelPin->PinId.ToString());
+
+            // Identify the specific delegate operation
+            if (Cast<UK2Node_AssignDelegate>(K2))
+                AddMeta(TEXT("meta.delegateOp"), TEXT("Assign"));
+            else if (Cast<UK2Node_AddDelegate>(K2))
+                AddMeta(TEXT("meta.delegateOp"), TEXT("Add"));
+            else if (Cast<UK2Node_RemoveDelegate>(K2))
+                AddMeta(TEXT("meta.delegateOp"), TEXT("Remove"));
+        }
+
+        // --- Task 40: Message — interface function call dispatched dynamically at runtime ---
+        // Inherits UK2Node_CallFunction; function reference already extracted by that handler.
+        if (Cast<UK2Node_Message>(K2))
+        {
+            AddMetaBool(TEXT("meta.isInterfaceMessage"), true);
+        }
+
+        // --- Task 41: GenericCreateObject / CreateWidget — object / widget factory nodes ---
+        // Both inherit UK2Node_ConstructObjectFromClass which exposes the class pin.
+        // K2Node_CreateWidget has a private header; detect it by class name.
+        if (UK2Node_ConstructObjectFromClass* CreateObj =
+            Cast<UK2Node_ConstructObjectFromClass>(K2))
+        {
+            const FString NodeClassName = K2->GetClass()->GetName();
+            if (NodeClassName.Equals(TEXT("K2Node_CreateWidget")))
+                AddMetaBool(TEXT("meta.isCreateWidget"), true);
+            else
+                AddMetaBool(TEXT("meta.isGenericCreateObject"), true);
+
+            UEdGraphPin* ClassPin  = CreateObj->GetClassPin();
+            UEdGraphPin* ResultPin = CreateObj->GetResultPin();
+            if (ClassPin)
+            {
+                AddMeta(TEXT("meta.createClassPinId"), ClassPin->PinId.ToString());
+                if (!ClassPin->DefaultValue.IsEmpty())
+                    AddMeta(TEXT("meta.createClassDefault"), ClassPin->DefaultValue);
+                if (ClassPin->PinType.PinSubCategoryObject.IsValid())
+                    AddMeta(TEXT("meta.createClassBaseType"),
+                        ClassPin->PinType.PinSubCategoryObject->GetPathName());
+            }
+            if (ResultPin)
+                AddMeta(TEXT("meta.createResultPinId"), ResultPin->PinId.ToString());
+        }
+
+        // --- Task 42: FormatText — FText formatting with named dynamic argument slots ---
+        if (UK2Node_FormatText* FmtText = Cast<UK2Node_FormatText>(K2))
+        {
+            AddMetaBool(TEXT("meta.isFormatText"), true);
+            AddMeta(TEXT("meta.formatArgumentCount"),
+                FString::FromInt(FmtText->GetArgumentCount()));
+            // PinNames is private; use the public GetArgumentCount()/GetArgumentName(i) accessors
+            const int32 ArgCount = FmtText->GetArgumentCount();
+            if (ArgCount > 0)
+            {
+                TArray<FString> ArgNames;
+                for (int32 ArgIdx = 0; ArgIdx < ArgCount; ++ArgIdx)
+                    ArgNames.Add(FmtText->GetArgumentName(ArgIdx).ToString());
+                AddMeta(TEXT("meta.formatArgumentNames"),
+                    FString::Join(ArgNames, TEXT(";")));
+            }
+            UEdGraphPin* FormatPin = FmtText->GetFormatPin();
+            if (FormatPin)
+            {
+                AddMeta(TEXT("meta.formatPinId"), FormatPin->PinId.ToString());
+                if (!FormatPin->DefaultValue.IsEmpty())
+                    AddMeta(TEXT("meta.formatDefaultText"), FormatPin->DefaultValue);
+            }
+        }
+
+        // --- Task 43: InputKey — raw input key / button event node ---
+        if (UK2Node_InputKey* InpKey = Cast<UK2Node_InputKey>(K2))
+        {
+            AddMetaBool(TEXT("meta.isInputKey"), true);
+            AddMeta(TEXT("meta.inputKeyName"), InpKey->InputKey.GetFName().ToString());
+            AddMeta(TEXT("meta.inputKeyDisplayName"),
+                InpKey->InputKey.GetDisplayName().ToString());
+            AddMetaBool(TEXT("meta.inputKeyConsumed"),       InpKey->bConsumeInput  != 0);
+            AddMetaBool(TEXT("meta.inputKeyWhenPaused"),     InpKey->bExecuteWhenPaused != 0);
+            AddMetaBool(TEXT("meta.inputKeyOverrideParent"), InpKey->bOverrideParentBinding != 0);
+            AddMetaBool(TEXT("meta.inputKeyCtrl"),    InpKey->bControl  != 0);
+            AddMetaBool(TEXT("meta.inputKeyAlt"),     InpKey->bAlt      != 0);
+            AddMetaBool(TEXT("meta.inputKeyShift"),   InpKey->bShift    != 0);
+            AddMetaBool(TEXT("meta.inputKeyCmd"),     InpKey->bCommand  != 0);
+            UEdGraphPin* PressedPin  = InpKey->GetPressedPin();
+            UEdGraphPin* ReleasedPin = InpKey->GetReleasedPin();
+            if (PressedPin)  AddMeta(TEXT("meta.pressedPinId"),  PressedPin->PinId.ToString());
+            if (ReleasedPin) AddMeta(TEXT("meta.releasedPinId"), ReleasedPin->PinId.ToString());
+        }
+
+        // --- Task 44: MathExpression — expression-string-driven inline math sub-graph ---
+        if (UK2Node_MathExpression* MathExpr = Cast<UK2Node_MathExpression>(K2))
+        {
+            AddMetaBool(TEXT("meta.isMathExpression"), true);
+            if (!MathExpr->Expression.IsEmpty())
+                AddMeta(TEXT("meta.expression"), MathExpr->Expression);
+        }
+
+        // --- Task 45: EnhancedInputAction — UInputAction-bound event node ---
+        if (UK2Node_EnhancedInputAction* EIA = Cast<UK2Node_EnhancedInputAction>(K2))
+        {
+            AddMetaBool(TEXT("meta.isEnhancedInputAction"), true);
+            if (EIA->InputAction)
+            {
+                AddMeta(TEXT("meta.inputActionPath"), EIA->InputAction->GetPathName());
+                AddMeta(TEXT("meta.inputActionName"), EIA->InputAction->GetName());
+            }
+            // Collect trigger event exec output pins (Triggered, Started, Ongoing, etc.)
+            TArray<FString> TriggerPins;
+            for (UEdGraphPin* Pin : EIA->Pins)
+            {
+                if (Pin && Pin->Direction == EGPD_Output
+                    && Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec)
+                {
+                    TriggerPins.Add(Pin->PinName.ToString()
+                        + TEXT(":") + Pin->PinId.ToString());
+                }
+            }
+            if (TriggerPins.Num() > 0)
+                AddMeta(TEXT("meta.triggerEventPins"),
+                    FString::Join(TriggerPins, TEXT(";")));
+        }
+
+        // --- Task 46: AssignmentStatement — wildcard lvalue/rvalue assignment ---
+        if (UK2Node_AssignmentStatement* AssignStmt =
+            Cast<UK2Node_AssignmentStatement>(K2))
+        {
+            AddMetaBool(TEXT("meta.isAssignmentStatement"), true);
+            UEdGraphPin* VarPin = AssignStmt->GetVariablePin();
+            UEdGraphPin* ValPin = AssignStmt->GetValuePin();
+            if (VarPin)
+            {
+                AddMeta(TEXT("meta.assignVariablePinId"),
+                    VarPin->PinId.ToString());
+                AddMeta(TEXT("meta.assignVariableCategory"),
+                    VarPin->PinType.PinCategory.ToString());
+                if (VarPin->PinType.PinSubCategoryObject.IsValid())
+                    AddMeta(TEXT("meta.assignVariableType"),
+                        VarPin->PinType.PinSubCategoryObject->GetPathName());
+            }
+            if (ValPin)
+            {
+                AddMeta(TEXT("meta.assignValuePinId"),
+                    ValPin->PinId.ToString());
+                AddMeta(TEXT("meta.assignValueCategory"),
+                    ValPin->PinType.PinCategory.ToString());
+            }
+        }
+
+        // --- Task 47: TemporaryVariable — compiler-generated typed local storage slot ---
+        if (UK2Node_TemporaryVariable* TmpVar = Cast<UK2Node_TemporaryVariable>(K2))
+        {
+            AddMetaBool(TEXT("meta.isTemporaryVariable"), true);
+            AddMetaBool(TEXT("meta.tempVarIsPersistent"), TmpVar->bIsPersistent);
+            const FEdGraphPinType& PT = TmpVar->VariableType;
+            AddMeta(TEXT("meta.tempVarCategory"),    PT.PinCategory.ToString());
+            AddMeta(TEXT("meta.tempVarSubCategory"), PT.PinSubCategory.ToString());
+            if (PT.PinSubCategoryObject.IsValid())
+                AddMeta(TEXT("meta.tempVarSubCategoryObject"),
+                    PT.PinSubCategoryObject->GetPathName());
+            AddMetaBool(TEXT("meta.tempVarIsArray"), PT.IsArray());
+            AddMetaBool(TEXT("meta.tempVarIsSet"),   PT.IsSet());
+            AddMetaBool(TEXT("meta.tempVarIsMap"),   PT.IsMap());
+            AddMetaBool(TEXT("meta.tempVarIsRef"),   PT.bIsReference);
+            UEdGraphPin* VarPin = TmpVar->GetVariablePin();
+            if (VarPin)
+                AddMeta(TEXT("meta.tempVarPinId"), VarPin->PinId.ToString());
+        }
+
+        // --- Task 48: PropertyAccess — property-path accessor (private header; use reflection) ---
+        // K2Node_PropertyAccess.h lives in a Private module directory and cannot be included
+        // externally.  We detect the node by class FName and extract UPROPERTYs via reflection.
+        {
+            static const FName PropAccessClassName(TEXT("K2Node_PropertyAccess"));
+            if (K2->GetClass()->GetFName() == PropAccessClassName)
+            {
+                AddMetaBool(TEXT("meta.isPropertyAccess"), true);
+                // Extract Path (TArray<FString>) — the property access chain segments
+                if (FArrayProperty* PathProp = FindFProperty<FArrayProperty>(
+                        K2->GetClass(), TEXT("Path")))
+                {
+                    FScriptArrayHelper PathHelper(PathProp,
+                        PathProp->ContainerPtrToValuePtr<void>(K2));
+                    FStrProperty* ElemProp =
+                        CastField<FStrProperty>(PathProp->Inner);
+                    TArray<FString> Segments;
+                    if (ElemProp)
+                    {
+                        for (int32 Idx = 0; Idx < PathHelper.Num(); ++Idx)
+                            Segments.Add(ElemProp->GetPropertyValue(
+                                PathHelper.GetRawPtr(Idx)));
+                    }
+                    if (Segments.Num() > 0)
+                    {
+                        AddMeta(TEXT("meta.propertyAccessPath"),
+                            FString::Join(Segments, TEXT(".")));
+                        AddMeta(TEXT("meta.propertyAccessDepth"),
+                            FString::FromInt(Segments.Num()));
+                    }
+                }
+                // Extract ContextId (FName) — compilation context hint
+                if (FNameProperty* CtxProp = FindFProperty<FNameProperty>(
+                        K2->GetClass(), TEXT("ContextId")))
+                {
+                    FName CtxId = CtxProp->GetPropertyValue_InContainer(K2);
+                    if (!CtxId.IsNone())
+                        AddMeta(TEXT("meta.propertyAccessContextId"),
+                            CtxId.ToString());
+                }
+            }
+        }
+
+        // --- Task 49: GetDataTableRow — row struct lookup from a UDataTable asset ---
+        if (UK2Node_GetDataTableRow* DTRow = Cast<UK2Node_GetDataTableRow>(K2))
+        {
+            AddMetaBool(TEXT("meta.isGetDataTableRow"), true);
+            UEdGraphPin* TablePin    = DTRow->GetDataTablePin();
+            UEdGraphPin* RowPin      = DTRow->GetRowNamePin();
+            UEdGraphPin* NotFoundPin = DTRow->GetRowNotFoundPin();
+            UEdGraphPin* ResultPin   = DTRow->GetResultPin();
+            if (TablePin)
+            {
+                AddMeta(TEXT("meta.dataTablePinId"), TablePin->PinId.ToString());
+                if (!TablePin->DefaultValue.IsEmpty())
+                    AddMeta(TEXT("meta.dataTableDefault"), TablePin->DefaultValue);
+            }
+            if (RowPin)
+            {
+                AddMeta(TEXT("meta.rowNamePinId"), RowPin->PinId.ToString());
+                if (!RowPin->DefaultValue.IsEmpty())
+                    AddMeta(TEXT("meta.rowNameDefault"), RowPin->DefaultValue);
+            }
+            if (NotFoundPin)
+                AddMeta(TEXT("meta.rowNotFoundPinId"), NotFoundPin->PinId.ToString());
+            if (ResultPin)
+            {
+                AddMeta(TEXT("meta.dtRowResultPinId"), ResultPin->PinId.ToString());
+                if (ResultPin->PinType.PinSubCategoryObject.IsValid())
+                    AddMeta(TEXT("meta.dtRowStructType"),
+                        ResultPin->PinType.PinSubCategoryObject->GetPathName());
+            }
+        }
+
+        // --- Task 50: GetEnumeratorName — enum value → FName display name ---
+        if (Cast<UK2Node_GetEnumeratorName>(K2))
+        {
+            AddMetaBool(TEXT("meta.isGetEnumeratorName"), true);
+            // Locate the enum input pin (byte category, linked to enum type)
+            for (UEdGraphPin* Pin : K2->Pins)
+            {
+                if (Pin && Pin->Direction == EGPD_Input
+                    && Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Byte)
+                {
+                    AddMeta(TEXT("meta.enumeratorInputPinId"), Pin->PinId.ToString());
+                    if (Pin->PinType.PinSubCategoryObject.IsValid())
+                        AddMeta(TEXT("meta.enumeratorEnumClass"),
+                            Pin->PinType.PinSubCategoryObject->GetPathName());
+                    break;
+                }
             }
         }
     }

@@ -416,6 +416,63 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `pass` — all 6 new node handlers compile and regress at zero risk; Tunnel is the largest new corpus category (1949 nodes), PromotableOp second (1000), SetPersistentFrame third (341); EnumInequality/MakeSet have low/zero corpus count but handlers are defensive.
 - Follow-up: wire new node meta fields into converter-side lowering patterns; consider gating Tunnel/PromotableOp/SetPersistentFrame thresholds once stable across builds.
 
+### 2026-02-19 23:41 - Tasks 33-50: 25 new K2Node handlers + InputCore module fix
+
+- Scope: implement meta-enrichment handlers for all remaining high-frequency partially-supported K2Node types identified in corpus frequency analysis; fix linker errors blocking previous session.
+- Changes:
+  - **Build.cs additions**: Added `"GameplayAbilitiesEditor"` (K2Node_LatentAbilityCall), `"GameplayTasksEditor"` (K2Node_LatentGameplayTaskCall), `"InputBlueprintNodes"` (K2Node_EnhancedInputAction), `"EnhancedInput"` (UInputAction definition), `"InputCore"` (FKey::GetFName / FKey::GetDisplayName) to `PrivateDependencyModuleNames`.
+  - **IsNodeTypeKnownSupported expansion**: Added 25 new entries — K2Node_CallMaterialParameterCollectionFunction, K2Node_GetSubsystem, K2Node_GetEngineSubsystem, K2Node_GetSubsystemFromPC, K2Node_LatentAbilityCall, K2Node_LatentGameplayTaskCall, K2Node_AddComponent, K2Node_SetFieldsInStruct, K2Node_AsyncAction, K2Node_AddDelegate, K2Node_AssignDelegate, K2Node_RemoveDelegate, K2Node_Message, K2Node_GenericCreateObject, K2Node_CreateWidget, K2Node_FormatText, K2Node_InputKey, K2Node_MathExpression, K2Node_EnhancedInputAction, K2Node_AssignmentStatement, K2Node_TemporaryVariable, K2Node_PropertyAccess, K2Node_GetDataTableRow, K2Node_GetEnumeratorName.
+  - **New includes**: 24 new `#include` directives for the above node type headers plus `InputAction.h`.
+  - **New handlers** (highlights):
+    - *Task 33*: `K2Node_CallMaterialParameterCollectionFunction` → `meta.isCallMaterialParamCollection=true`.
+    - *Task 34*: `K2Node_GetSubsystem` → `meta.isGetSubsystem`, `meta.subsystemClass/Name/Variant` (reflection for protected `CustomClass`), result pin ID; sub-variants `Engine`/`LocalPlayer`/`World`.
+    - *Task 35*: `K2Node_BaseAsyncTask` → proxy factory/class/activation names via reflection (`FindFProperty`) for all 4 protected UPROPERTYs; variant detection for LatentAbilityCall/GameplayTaskCall/AsyncAction; SpawnParam pin enumeration; delegate output exec pin collection.
+    - *Task 36*: `K2Node_AddComponent` → component class path/name, component template name, expose-to-BP flag.
+    - *Task 37*: `K2Node_SetFieldsInStruct` → struct type path, field count, field pin IDs.
+    - *Task 38*: `K2Node_AsyncAction` → discriminator meta for async action subtype.
+    - *Task 39*: `K2Node_BaseMCDelegate` subclasses → delegate property name, owner class/package (fixed: `GetMemberParentPackage()` returns `UPackage*`, not `FName`); signature function path; add/remove/assign variant; output exec pin.
+    - *Task 40*: `K2Node_Message` → interface class path/name, function name.
+    - *Task 41*: `K2Node_GenericCreateObject`/`K2Node_CreateWidget` (private header workaround: cast to `UK2Node_ConstructObjectFromClass` base) → outer pin ID, class pin ID, spawn-transform pin ID.
+    - *Task 42*: `K2Node_FormatText` → argument count, argument names (fixed: `PinNames` is private; use `GetArgumentCount()` + `GetArgumentName(i)` public accessors), format pin ID.
+    - *Task 43*: `K2Node_InputKey` → key FName, display name (required `InputCore` module); chord modifiers (Shift/Ctrl/Alt/Cmd); action/pressed/released/repeat exec pin IDs.
+    - *Task 44*: `K2Node_MathExpression` → expression string.
+    - *Task 45*: `K2Node_EnhancedInputAction` → input action path, action name, trigger event name.
+    - *Task 46*: `K2Node_AssignmentStatement` → variable pin ID, value pin ID.
+    - *Task 47*: `K2Node_TemporaryVariable` → variable type category/subCategory/objectPath, pin ID.
+    - *Task 48*: `K2Node_PropertyAccess` (private header workaround: class FName equality + pure reflection on `Path` FArrayProperty and `ContextId` FNameProperty) → property access path string, depth, context ID.
+    - *Task 49*: `K2Node_GetDataTableRow` → DataTable pin ID, row name pin ID, row not found pin ID.
+    - *Task 50*: `K2Node_GetEnumeratorName`/`GetEnumeratorNameAsString` → enum class path, enum class name, input pin ID, return pin ID.
+  - **Validator metrics**: Added 19 new informational counters: `nodesWithCallMaterialParamCollection`, `nodesWithGetSubsystem`, `nodesWithBaseAsyncTask`, `nodesWithAddComponent`, `nodesWithSetFieldsInStruct`, `nodesWithAsyncAction`, `nodesWithDelegateOp`, `nodesWithInterfaceMessage`, `nodesWithCreateObject`, `nodesWithFormatText`, `nodesWithInputKey`, `nodesWithMathExpression`, `nodesWithEnhancedInputAction`, `nodesWithAssignmentStatement`, `nodesWithTemporaryVariable`, `nodesWithPropertyAccess`, `nodesWithGetDataTableRow`, `nodesWithGetEnumeratorName`.
+  - **Defects fixed during implementation**:
+    - *UInputAction C2027*: K2Node_EnhancedInputAction.h forward-declares `class UInputAction;` only; fix: add `"EnhancedInput"` to Build.cs + `#include "InputAction.h"`.
+    - *GetMemberParentPackage pointer error*: `FMemberReference::GetMemberParentPackage()` returns `UPackage*` (not `FName`); calling `.IsNone()`/`.ToString()` directly on a pointer is invalid; fix: `if (UPackage* OwnerPkg = DelRef.GetMemberParentPackage()) AddMeta(..., OwnerPkg->GetName())`.
+    - *PinNames C2248 (UK2Node_FormatText)*: `PinNames` is private; fix: use `GetArgumentCount()` + `GetArgumentName(int32)` loop.
+    - *Proxy UPROPERTY C2248 (UK2Node_BaseAsyncTask)*: all 4 proxy fields are `protected:`; fix: `FindFProperty<FNameProperty/FClassProperty>()` + `GetPropertyValue_InContainer()`/`GetObjectPropertyValue_InContainer()`.
+    - *CustomClass C2248 (UK2Node_GetSubsystem)*: `CustomClass` is `protected:`; fix: same reflection pattern.
+    - *LNK2019 FKey::GetDisplayName/GetFName*: `FKey` is in `InputCore` module, which was missing from Build.cs; fix: add `"InputCore"` to `PrivateDependencyModuleNames`.
+  - Build: 2 incremental actions (link `.dll` + write metadata) after InputCore fix — all compile units already rebuilt in prior compile attempts.
+- Command:
+  - `powershell -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_234123/` (fresh export batch, 485 files)
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260219_234159.json`
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_234123/BP_SLZR_ValidationReport_20260219_234159.json`
+  - `Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260219_234159.json`
+- Key metrics:
+  - `suitePass=true`, `overallPass=true`, all 14 gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`, `missingRequiredExports=0`
+  - `nodesWithCallMaterialParamCollection=209`, `nodesWithGetSubsystem=72`, `nodesWithBaseAsyncTask=73`
+  - `nodesWithAddComponent=199`, `nodesWithSetFieldsInStruct=29`, `nodesWithAsyncAction=35`
+  - `nodesWithDelegateOp=20`, `nodesWithInterfaceMessage=10`, `nodesWithCreateObject=34`
+  - `nodesWithFormatText=10`, `nodesWithInputKey=29`, `nodesWithMathExpression=11`
+  - `nodesWithEnhancedInputAction=15`, `nodesWithAssignmentStatement=58`, `nodesWithTemporaryVariable=21`
+  - `nodesWithPropertyAccess=85`, `nodesWithGetDataTableRow=2`, `nodesWithGetEnumeratorName=4`
+  - All prior stability metrics unchanged: `nodesWithPromotableOp=1000`, `nodesWithTunnel=1949`, `nodesWithSetPersistentFrame=341`, `nodesWithBranch=1054`, `nodesWithReroute=2949`.
+  - Curve audit: `animSequenceAssetsTotal=584`, `sequencesWithFloatCurves=233`, `floatCurvesTotal=281` (unchanged).
+- Baseline: updated `REGRESSION_BASELINE.json` — raised all existing thresholds to observed values; added 19 new minimum thresholds for Tasks 33-50 metrics.
+- Result: `pass` — all 25 new node handlers (Tasks 33-50) compile cleanly and regress at zero risk; complete handler coverage for all identified high-frequency K2Node types in Lyra corpus.
+- Follow-up: commit; evaluate any remaining node types from corpus; consider converter-side consumption of new meta fields.
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.

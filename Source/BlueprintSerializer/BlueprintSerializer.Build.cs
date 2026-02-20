@@ -5,7 +5,7 @@ public class BlueprintSerializer : ModuleRules
 	public BlueprintSerializer(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
-		
+
 		PublicDependencyModuleNames.AddRange(
 			new string[]
 			{
@@ -17,7 +17,7 @@ public class BlueprintSerializer : ModuleRules
 				"DeveloperSettings"
 			}
 		);
-		
+
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
@@ -25,7 +25,7 @@ public class BlueprintSerializer : ModuleRules
 				"AnimGraph",
 				"AnimGraphRuntime",
 				"EditorStyle",
-				"EditorWidgets", 
+				"EditorWidgets",
 				"ToolMenus",
 				"Slate",
 				"SlateCore",
@@ -46,10 +46,16 @@ public class BlueprintSerializer : ModuleRules
 				"ControlRig",
 				"ControlRigDeveloper",
 				"RigVM",
-				"RigVMDeveloper"
+				"RigVMDeveloper",
+				// Task 33-50: node handlers requiring external module headers
+				"GameplayAbilitiesEditor",   // K2Node_LatentAbilityCall
+				"GameplayTasksEditor",       // K2Node_LatentGameplayTaskCall
+				"InputBlueprintNodes",       // K2Node_EnhancedInputAction
+				"EnhancedInput",             // UInputAction definition (used by K2Node_EnhancedInputAction)
+				"InputCore",                 // FKey::GetFName / FKey::GetDisplayName (K2Node_InputKey)
 			}
 		);
-		
+
 		// Add runtime dependencies for content
 		if (Target.bBuildEditor)
 		{
