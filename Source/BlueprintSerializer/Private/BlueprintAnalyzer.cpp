@@ -106,6 +106,16 @@
 #include "K2Node_MakeStruct.h"
 #include "K2Node_BreakStruct.h"
 #include "K2Node_StructOperation.h"
+#include "K2Node_PromotableOperator.h"
+#include "K2Node_GetArrayItem.h"
+#include "K2Node_MakeContainer.h"
+#include "K2Node_MakeArray.h"
+#include "K2Node_MakeMap.h"
+#include "K2Node_MakeSet.h"
+#include "K2Node_Tunnel.h"
+#include "K2Node_EnumEquality.h"
+#include "K2Node_EnumInequality.h"
+#include "K2Node_SetVariableOnPersistentFrame.h"
 #include "EdGraphSchema_K2.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
@@ -643,7 +653,29 @@ namespace
             TEXT("K2Node_CustomEvent"),
             TEXT("K2Node_Event"),
             TEXT("K2Node_Timeline"),
-            TEXT("K2Node_CallParentFunction")
+            TEXT("K2Node_CallParentFunction"),
+            // Task 27: promote nodes that already have full meta handlers to known-supported
+            TEXT("K2Node_Knot"),                 // Task 24: reroute (transparent pass-through)
+            TEXT("K2Node_Self"),                 // Task 25: self-reference marker
+            TEXT("K2Node_SpawnActorFromClass"),  // Task 26: actor spawn
+            TEXT("K2Node_Composite"),            // Task 18: collapsed sub-graph
+            TEXT("K2Node_ClassDynamicCast"),     // existing handler
+            TEXT("K2Node_Literal"),              // existing handler
+            TEXT("K2Node_CallDelegate"),         // existing handler
+            TEXT("K2Node_CreateDelegate"),       // existing handler
+            TEXT("K2Node_CallArrayFunction"),    // existing handler
+            TEXT("K2Node_ComponentBoundEvent"),  // existing handler
+            // Task 28-32 new handlers (added below)
+            TEXT("K2Node_PromotableOperator"),           // Task 28
+            TEXT("K2Node_GetArrayItem"),                 // Task 29
+            TEXT("K2Node_MakeArray"),                    // Task 30
+            TEXT("K2Node_MakeMap"),                      // Task 30
+            TEXT("K2Node_MakeSet"),                      // Task 30
+            TEXT("K2Node_Tunnel"),                       // Task 31
+            TEXT("K2Node_TunnelBoundary"),               // Task 31 (subtype)
+            TEXT("K2Node_EnumEquality"),                 // Task 32
+            TEXT("K2Node_EnumInequality"),               // Task 32
+            TEXT("K2Node_SetVariableOnPersistentFrame"), // Task 32
         };
 
         return SupportedTypes.Contains(NodeType);
@@ -5101,6 +5133,165 @@ FBS_NodeData UBlueprintAnalyzer::AnalyzeNodeToStruct(UEdGraphNode* Node)
             if (UClass* Owner = CompEvent->EventReference.GetMemberParentClass())
             {
                 AddMeta(TEXT("meta.eventOwner"), Owner->GetPathName());
+            }
+        }
+
+        // --- Task 28: PromotableOperator — UE5-native type-promoted math/comparison node ---
+        // Inherits UK2Node_CallFunction; GetTargetFunction() resolves the actual promoted op.
+        if (UK2Node_PromotableOperator* PromoOp = Cast<UK2Node_PromotableOperator>(K2))
+        {
+            AddMetaBool(TEXT("meta.isPromotableOp"), true);
+            UFunction* Func = PromoOp->GetTargetFunction();
+            if (Func)
+            {
+                AddMeta(TEXT("meta.promotableOpFunc"), Func->GetName());
+                UClass* FuncOwner = Func->GetOwnerClass();
+                if (FuncOwner)
+                {
+                    AddMeta(TEXT("meta.promotableOpClass"), FuncOwner->GetPathName());
+                }
+            }
+        }
+
+        // --- Task 29: GetArrayItem — typed array element read with index ---
+        // Pins[0]=array, Pins[1]=index("Dimension 1"), Pins[2]=result; pure node.
+        if (UK2Node_GetArrayItem* GetItem = Cast<UK2Node_GetArrayItem>(K2))
+        {
+            AddMetaBool(TEXT("meta.isGetArrayItem"), true);
+            UEdGraphPin* ArrPin = GetItem->GetTargetArrayPin();
+            UEdGraphPin* IdxPin = GetItem->GetIndexPin();
+            UEdGraphPin* RetPin = GetItem->GetResultPin();
+            if (ArrPin) { AddMeta(TEXT("meta.arrayPinId"),  ArrPin->PinId.ToString()); }
+            if (IdxPin) { AddMeta(TEXT("meta.indexPinId"),  IdxPin->PinId.ToString()); }
+            if (RetPin) { AddMeta(TEXT("meta.resultPinId"), RetPin->PinId.ToString()); }
+        }
+
+        // --- Task 30: MakeArray / MakeMap / MakeSet — container constructors ---
+        // All three inherit UK2Node_MakeContainer; GetOutputPin() gives the container output.
+        // Non-exec input pins are the element (or key/value) slots.
+        if (UK2Node_MakeArray* MkArr = Cast<UK2Node_MakeArray>(K2))
+        {
+            AddMetaBool(TEXT("meta.isMakeArray"), true);
+            UEdGraphPin* OutPin = MkArr->GetOutputPin();
+            if (OutPin) { AddMeta(TEXT("meta.outputPinId"), OutPin->PinId.ToString()); }
+            TArray<FString> ElemPinIds;
+            for (UEdGraphPin* Pin : MkArr->Pins)
+            {
+                if (Pin && Pin != OutPin
+                    && Pin->Direction == EGPD_Input
+                    && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+                {
+                    ElemPinIds.Add(Pin->PinId.ToString());
+                }
+            }
+            AddMeta(TEXT("meta.elementPinCount"), FString::FromInt(ElemPinIds.Num()));
+            if (ElemPinIds.Num() > 0)
+            {
+                AddMeta(TEXT("meta.elementPinIds"), FString::Join(ElemPinIds, TEXT(";")));
+            }
+        }
+
+        if (UK2Node_MakeMap* MkMap = Cast<UK2Node_MakeMap>(K2))
+        {
+            AddMetaBool(TEXT("meta.isMakeMap"), true);
+            UEdGraphPin* OutPin = MkMap->GetOutputPin();
+            if (OutPin) { AddMeta(TEXT("meta.outputPinId"), OutPin->PinId.ToString()); }
+            TArray<FString> ElemPinIds;
+            for (UEdGraphPin* Pin : MkMap->Pins)
+            {
+                if (Pin && Pin != OutPin
+                    && Pin->Direction == EGPD_Input
+                    && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+                {
+                    ElemPinIds.Add(Pin->PinId.ToString());
+                }
+            }
+            AddMeta(TEXT("meta.elementPinCount"), FString::FromInt(ElemPinIds.Num()));
+            if (ElemPinIds.Num() > 0)
+            {
+                AddMeta(TEXT("meta.elementPinIds"), FString::Join(ElemPinIds, TEXT(";")));
+            }
+        }
+
+        if (UK2Node_MakeSet* MkSet = Cast<UK2Node_MakeSet>(K2))
+        {
+            AddMetaBool(TEXT("meta.isMakeSet"), true);
+            UEdGraphPin* OutPin = MkSet->GetOutputPin();
+            if (OutPin) { AddMeta(TEXT("meta.outputPinId"), OutPin->PinId.ToString()); }
+            TArray<FString> ElemPinIds;
+            for (UEdGraphPin* Pin : MkSet->Pins)
+            {
+                if (Pin && Pin != OutPin
+                    && Pin->Direction == EGPD_Input
+                    && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+                {
+                    ElemPinIds.Add(Pin->PinId.ToString());
+                }
+            }
+            AddMeta(TEXT("meta.elementPinCount"), FString::FromInt(ElemPinIds.Num()));
+            if (ElemPinIds.Num() > 0)
+            {
+                AddMeta(TEXT("meta.elementPinIds"), FString::Join(ElemPinIds, TEXT(";")));
+            }
+        }
+
+        // --- Task 31: Tunnel — collapsed sub-graph or macro entry/exit boundary ---
+        // K2Node_FunctionEntry and K2Node_FunctionResult also inherit UK2Node_Tunnel;
+        // exclude them since they have dedicated handlers above.
+        if (UK2Node_Tunnel* Tunnel = Cast<UK2Node_Tunnel>(K2))
+        {
+            if (!Cast<UK2Node_FunctionEntry>(K2) && !Cast<UK2Node_FunctionResult>(K2))
+            {
+                AddMetaBool(TEXT("meta.isTunnel"), true);
+                // GetInputSink/GetOutputSource link the entry and exit tunnel pair.
+                UK2Node_Tunnel* Sink   = Tunnel->GetInputSink();
+                UK2Node_Tunnel* Source = Tunnel->GetOutputSource();
+                if (Sink)   { AddMeta(TEXT("meta.tunnelSinkNodeGuid"),   Sink->NodeGuid.ToString()); }
+                if (Source) { AddMeta(TEXT("meta.tunnelSourceNodeGuid"), Source->NodeGuid.ToString()); }
+            }
+        }
+
+        // --- Task 32a: EnumEquality / EnumInequality — enum comparison nodes ---
+        // EnumInequality inherits EnumEquality, so one Cast handles both; distinguish by subtype.
+        if (UK2Node_EnumEquality* EnumEq = Cast<UK2Node_EnumEquality>(K2))
+        {
+            const bool bIsInequality = (Cast<UK2Node_EnumInequality>(K2) != nullptr);
+            AddMetaBool(bIsInequality ? TEXT("meta.isEnumInequality") : TEXT("meta.isEnumEquality"), true);
+            UEdGraphPin* Pin1   = EnumEq->GetInput1Pin();
+            UEdGraphPin* Pin2   = EnumEq->GetInput2Pin();
+            UEdGraphPin* RetPin = EnumEq->GetReturnValuePin();
+            if (Pin1)   { AddMeta(TEXT("meta.inputAPin"),   Pin1->PinId.ToString()); }
+            if (Pin2)   { AddMeta(TEXT("meta.inputBPin"),   Pin2->PinId.ToString()); }
+            if (RetPin) { AddMeta(TEXT("meta.returnPinId"), RetPin->PinId.ToString()); }
+            // Capture the enum class from the first input pin's type for C++ codegen
+            if (Pin1 && Pin1->PinType.PinSubCategoryObject.IsValid())
+            {
+                AddMeta(TEXT("meta.enumClass"), Pin1->PinType.PinSubCategoryObject->GetPathName());
+            }
+        }
+
+        // --- Task 32b: SetVariableOnPersistentFrame — assigns a local var on the ubergraph frame ---
+        // Data input pin names are the target variable names (resolved by FindPropertyInScope at compile).
+        if (UK2Node_SetVariableOnPersistentFrame* SetPF = Cast<UK2Node_SetVariableOnPersistentFrame>(K2))
+        {
+            AddMetaBool(TEXT("meta.isSetPersistentFrame"), true);
+            TArray<FString> VarNames;
+            TArray<FString> VarPinIds;
+            for (UEdGraphPin* Pin : SetPF->Pins)
+            {
+                if (Pin
+                    && Pin->Direction == EGPD_Input
+                    && Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec)
+                {
+                    VarNames.Add(Pin->PinName.ToString());
+                    VarPinIds.Add(Pin->PinId.ToString());
+                }
+            }
+            if (VarNames.Num() > 0)
+            {
+                AddMeta(TEXT("meta.persistentVarNames"),  FString::Join(VarNames,  TEXT(";")));
+                AddMeta(TEXT("meta.persistentVarPinIds"), FString::Join(VarPinIds, TEXT(";")));
+                AddMeta(TEXT("meta.persistentVarCount"),  FString::FromInt(VarNames.Num()));
             }
         }
     }

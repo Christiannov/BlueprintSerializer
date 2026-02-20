@@ -41,7 +41,13 @@
     "animationTransitionsWithBlendOutTriggerTime": 40,
     "animationTransitionsWithNotifyStateIndex": 40,
     "controlRigsTotal": 2,
-    "controlRigsWithBones": 2
+    "controlRigsWithBones": 2,
+    "nodesWithPromotableOp": 800,
+    "nodesWithGetArrayItem": 150,
+    "nodesWithMakeArray": 50,
+    "nodesWithTunnel": 1500,
+    "nodesWithEnumEquality": 80,
+    "nodesWithSetPersistentFrame": 250
   },
   "curveAuditMinMetrics": {
     "animSequenceAssetsTotal": 550,

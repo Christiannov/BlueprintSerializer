@@ -1468,6 +1468,16 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     int32 NodesWithSelf = 0;
     int32 NodesWithSpawnActor = 0;
     int32 NodesWithTimelineExecPins = 0;
+    // Tasks 28-32: new high-frequency node type metrics
+    int32 NodesWithPromotableOp = 0;
+    int32 NodesWithGetArrayItem = 0;
+    int32 NodesWithMakeArray = 0;
+    int32 NodesWithMakeMap = 0;
+    int32 NodesWithMakeSet = 0;
+    int32 NodesWithTunnel = 0;
+    int32 NodesWithEnumEquality = 0;
+    int32 NodesWithEnumInequality = 0;
+    int32 NodesWithSetPersistentFrame = 0;
 
     const int32 RawBlueprintFileCount = BlueprintFileNames.Num();
     TMap<FString, FString> SelectedFileByBlueprintPath;
@@ -2237,6 +2247,16 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
                     if (NodeProps->HasField(TEXT("meta.isSelf")))            NodesWithSelf++;
                     if (NodeProps->HasField(TEXT("meta.isSpawnActor")))      NodesWithSpawnActor++;
                     if (NodeProps->HasField(TEXT("meta.timelinePlayPinId"))) NodesWithTimelineExecPins++;
+                    // Tasks 28-32: count new high-frequency node type enrichment fields
+                    if (NodeProps->HasField(TEXT("meta.isPromotableOp")))        NodesWithPromotableOp++;
+                    if (NodeProps->HasField(TEXT("meta.isGetArrayItem")))         NodesWithGetArrayItem++;
+                    if (NodeProps->HasField(TEXT("meta.isMakeArray")))            NodesWithMakeArray++;
+                    if (NodeProps->HasField(TEXT("meta.isMakeMap")))              NodesWithMakeMap++;
+                    if (NodeProps->HasField(TEXT("meta.isMakeSet")))              NodesWithMakeSet++;
+                    if (NodeProps->HasField(TEXT("meta.isTunnel")))               NodesWithTunnel++;
+                    if (NodeProps->HasField(TEXT("meta.isEnumEquality")))         NodesWithEnumEquality++;
+                    if (NodeProps->HasField(TEXT("meta.isEnumInequality")))       NodesWithEnumInequality++;
+                    if (NodeProps->HasField(TEXT("meta.isSetPersistentFrame")))   NodesWithSetPersistentFrame++;
                 }
             }
         }
@@ -2436,6 +2456,16 @@ void FBlueprintExtractorCommands::ValidateConverterReady(const TArray<FString>& 
     Metrics->SetNumberField(TEXT("nodesWithSelf"),             NodesWithSelf);
     Metrics->SetNumberField(TEXT("nodesWithSpawnActor"),       NodesWithSpawnActor);
     Metrics->SetNumberField(TEXT("nodesWithTimelineExecPins"), NodesWithTimelineExecPins);
+    // Tasks 28-32: new high-frequency node type enrichment metrics
+    Metrics->SetNumberField(TEXT("nodesWithPromotableOp"),       NodesWithPromotableOp);
+    Metrics->SetNumberField(TEXT("nodesWithGetArrayItem"),        NodesWithGetArrayItem);
+    Metrics->SetNumberField(TEXT("nodesWithMakeArray"),           NodesWithMakeArray);
+    Metrics->SetNumberField(TEXT("nodesWithMakeMap"),             NodesWithMakeMap);
+    Metrics->SetNumberField(TEXT("nodesWithMakeSet"),             NodesWithMakeSet);
+    Metrics->SetNumberField(TEXT("nodesWithTunnel"),              NodesWithTunnel);
+    Metrics->SetNumberField(TEXT("nodesWithEnumEquality"),        NodesWithEnumEquality);
+    Metrics->SetNumberField(TEXT("nodesWithEnumInequality"),      NodesWithEnumInequality);
+    Metrics->SetNumberField(TEXT("nodesWithSetPersistentFrame"),  NodesWithSetPersistentFrame);
     Report->SetObjectField(TEXT("metrics"), Metrics);
 
     Report->SetArrayField(TEXT("missingTopLevelKeys"), [&MissingTopLevelKeys]()

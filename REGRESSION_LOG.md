@@ -386,6 +386,36 @@ This file tracks regression runs, outcomes, and lessons to prevent repeated mist
 - Result: `pass` — all six new node handlers and the metric fix compile cleanly and regress at zero risk; bytecode node trace linkage now correctly populated (4556 traces across 147 exports); reroute nodes are the most prevalent new corpus entry at 2949.
 - Follow-up: promote Branch/Sequence/Reroute to structured gate thresholds if they prove stable across runs; continue next fidelity batch (AddComponent, DoOnce/Gate/DoN flow-control, GetClassDefaults).
 
+### 2026-02-19 22:00 - Tasks 27-32: known-supported expansion + 6 new node handlers (PromotableOp/GetArrayItem/MakeContainer/Tunnel/EnumEq/SetPersistentFrame)
+
+- Scope: expand `IsNodeTypeKnownSupported` static set and add handlers for high-frequency partially-supported K2Node types found in corpus frequency analysis.
+- Changes:
+  - **Task 27 (IsNodeTypeKnownSupported expansion)**: Promoted 10 existing handlers (K2Node_Knot, K2Node_Self, K2Node_SpawnActorFromClass, K2Node_Composite, K2Node_ClassDynamicCast, K2Node_Literal, K2Node_CallDelegate, K2Node_CreateDelegate, K2Node_CallArrayFunction, K2Node_ComponentBoundEvent) and pre-registered 10 new handler types into the static supported set; added 10 new `#include` directives.
+  - **Task 28 (PromotableOperator)**: New `UK2Node_PromotableOperator` handler emits `meta.isPromotableOp=true`, `meta.promotableOpFunc`, `meta.promotableOpClass` via `GetTargetFunction()` (inherits `UK2Node_CallFunction`).
+  - **Task 29 (GetArrayItem)**: New `UK2Node_GetArrayItem` handler emits `meta.isGetArrayItem=true`, `meta.arrayPinId`, `meta.indexPinId`, `meta.resultPinId` via `GetTargetArrayPin()`, `GetIndexPin()`, `GetResultPin()`.
+  - **Task 30 (MakeArray/MakeMap/MakeSet)**: Three new `UK2Node_MakeContainer` subclass handlers each emit `meta.isMakeArray/isMakeMap/isMakeSet=true`, `meta.outputPinId` (via `GetOutputPin()`), `meta.elementPinCount`, `meta.elementPinIds` (all non-exec input pins, semicolon-joined).
+  - **Task 31 (Tunnel)**: New `UK2Node_Tunnel` handler (excluding FunctionEntry/FunctionResult subtypes) emits `meta.isTunnel=true`, `meta.tunnelSinkNodeGuid`, `meta.tunnelSourceNodeGuid` via `GetInputSink()`/`GetOutputSource()`.
+  - **Task 32a (EnumEquality/EnumInequality)**: Single `UK2Node_EnumEquality` Cast handles both (EnumInequality inherits it); emits `meta.isEnumEquality` or `meta.isEnumInequality`, `meta.inputAPin`, `meta.inputBPin`, `meta.returnPinId`, `meta.enumClass` (from pin SubCategoryObject). Uses `GetInput1Pin()`, `GetInput2Pin()`, `GetReturnValuePin()`.
+  - **Task 32b (SetVariableOnPersistentFrame)**: New handler emits `meta.isSetPersistentFrame=true`, `meta.persistentVarNames` (semicolon-joined pin names, which are the variable names), `meta.persistentVarPinIds`, `meta.persistentVarCount`.
+  - **Validator metrics**: Added 9 new informational counters (`nodesWithPromotableOp`, `nodesWithGetArrayItem`, `nodesWithMakeArray`, `nodesWithMakeMap`, `nodesWithMakeSet`, `nodesWithTunnel`, `nodesWithEnumEquality`, `nodesWithEnumInequality`, `nodesWithSetPersistentFrame`).
+  - **Baseline**: Added 6 minimum thresholds for the highest-signal new metrics.
+  - Build: 4 incremental actions (compile `Module.BlueprintSerializer.3.cpp` + link `.lib` + link `.dll` + write metadata), 75 s.
+- Command:
+  - `powershell -ExecutionPolicy Bypass -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1`
+- Artifacts:
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_220005/` (fresh export batch, 485 files)
+  - `Saved/BlueprintExports/BP_SLZR_RegressionRun_20260219_220026.json`
+  - `Saved/BlueprintExports/BP_SLZR_All_20260219_220005/BP_SLZR_ValidationReport_20260219_220026.json`
+  - `Saved/BlueprintExports/BP_SLZR_AnimCurveAudit_20260219_220026.json`
+- Key metrics:
+  - `suitePass=true`, `overallPass=true`, all 14 gates pass
+  - `blueprintFileCount=485`, `parseErrors=0`
+  - `nodesWithPromotableOp=1000`, `nodesWithGetArrayItem=209`, `nodesWithMakeArray=71`, `nodesWithMakeMap=5`, `nodesWithMakeSet=0`
+  - `nodesWithTunnel=1949`, `nodesWithEnumEquality=120`, `nodesWithEnumInequality=6`, `nodesWithSetPersistentFrame=341`
+  - All prior stability metrics unchanged: `exportsWithStructuredGraphs=460`, `structuredGraphNodesTotal=37365`, `nodesWithBranch=1054`, `nodesWithReroute=2949`.
+- Result: `pass` — all 6 new node handlers compile and regress at zero risk; Tunnel is the largest new corpus category (1949 nodes), PromotableOp second (1000), SetPersistentFrame third (341); EnumInequality/MakeSet have low/zero corpus count but handlers are defensive.
+- Follow-up: wire new node meta fields into converter-side lowering patterns; consider gating Tunnel/PromotableOp/SetPersistentFrame thresholds once stable across builds.
+
 ## Known Pitfalls
 
 - Unreal command can outlive shell timeout; always verify by log and artifact files.
