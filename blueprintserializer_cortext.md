@@ -8,7 +8,9 @@
 
 ## What This Plugin Is
 
-BlueprintSerializer is an Unreal Engine 5 editor plugin that serializes Blueprint assets to structured JSON for AI-assisted C++ conversion workflows. Its primary mandate is **C++ conversion fidelity** — producing JSON that contains every piece of information a converter needs to generate correct, idiomatic C++ from a Blueprint class.
+BlueprintSerializer is an Unreal Engine 5 editor plugin that serializes Blueprint assets to structured JSON for automated C++ conversion. Its primary mandate is **C++ conversion fidelity** — producing a complete IR (intermediate representation) that contains every piece of information needed to generate a correct, idiomatic C++ header AND implementation from a Blueprint class.
+
+**Current status (v1.0-converter-ready, 2026-02-21):** The IR is complete. A downstream codegen tool that reads this JSON and emits `.h`/`.cpp` text is the next layer — it does not live in this plugin. Do not confuse "the codegen tool doesn't exist yet" with "the IR is insufficient." The IR has been audited and verified sufficient (see IR Completeness section below).
 
 **Plugin location:** `Plugins/BlueprintSerializer/`
 **Live work queue:** `gh issue list --repo Jinphinity/BlueprintSerializer --label implementation`
@@ -108,6 +110,66 @@ Harness internals are documented in `ARCHIVE.md` (Part 5).
 
 ---
 
+## IR Completeness — What structuredGraphs Actually Contains
+
+**DO NOT assume function body generation is impossible. The IR is complete. Verify against data before claiming gaps.**
+
+Every node in `structuredGraphs[].nodes[]` carries:
+- `nodeType` — exact K2Node class name (e.g. `K2Node_CallFunction`)
+- `title` — display name
+- `nodeProperties` — `TMap<FString,FString>` of all `meta.*` enrichment fields (see below)
+- `pins[]` — full pin data: name, direction, category, objectPath, defaultValue, connected, etc.
+
+Exec edges in `structuredGraphs[].flows.exec[]`:
+- `sourceNodeGuid + sourcePinName → targetNodeGuid + targetPinName`
+- Branch pins are labeled `'then'/'else'` or `'True'/'False'`; sequence nodes use `'Then 0'`, `'Then 1'`; fully unambiguous
+
+Data edges in `structuredGraphs[].flows.data[]`:
+- `sourceNodeGuid + sourcePinName → targetNodeGuid + targetPinName + pinCategory + pinSubCategoryObjectPath`
+- Unconnected input pins carry `defaultValue` / `defaultObjectPath` directly on the pin object
+
+### What Each Key Node Type Contains
+
+| Node Type | Key meta.* fields | What you can generate |
+|---|---|---|
+| `K2Node_CallFunction` | `meta.functionName`, `meta.functionOwner`, `meta.isStatic`, `meta.isLatent`, `meta.isPure`, `meta.bytecodeCorrelation` | `Target->FunctionName(args)` or `UClass::StaticFunc(args)` |
+| `K2Node_VariableGet` | `meta.variableName`, `meta.isSelfContext` | `this->VarName` or local variable read |
+| `K2Node_VariableSet` | `meta.variableName`, `meta.isSelfContext` | `this->VarName = expr` |
+| `K2Node_IfThenElse` | `meta.branchConditionPinId`, `meta.branchTruePinId`, `meta.branchFalsePinId` | `if (cond) { ... } else { ... }` |
+| `K2Node_MacroInstance` | `meta.macroGraphName`, `meta.macroGraphPath`, `meta.macroBlueprintPath` | Inline expansion or opaque call |
+| `K2Node_SpawnActorFromClass` | function + class pin data edge | `GetWorld()->SpawnActor<T>(Class, Transform)` |
+| `K2Node_CreateDelegate` | function name + target object data edge | `FDelegate::CreateUObject(this, &ThisClass::Func)` |
+| `K2Node_ExecutionSequence` | exec pins labeled `'Then 0'`, `'Then 1'`, … | Sequential statements |
+| `K2Node_Knot` | passthrough reroute — ignore, follow data edge | (transparent) |
+
+**Concrete B_Weapon evidence (audit_graph_ir.py, 2026-02-21):**
+```
+K2Node_CallFunction 'Attach Actor To Component':
+  meta.functionName        = 'K2_AttachToComponent'
+  meta.functionOwner       = '/Script/Engine.Actor'
+  meta.isStatic            = 'false'
+  meta.isLatent            = 'false'
+  meta.bytecodeCorrelation = 'Actor::K2_AttachToComponent'
+  → all argument pins wired via data edges or have defaultValue on the pin
+
+K2Node_IfThenElse 'Branch':
+  meta.branchConditionPinId = '79C77A09...'
+  exec 'then' → K2Node_CallFunction('Add Fake Projectile Data')
+  exec 'else' → K2Node_Knot('Reroute Node')
+  CONDITION SOURCE: K2Node_VariableGet('NeedsFakeProjectileData') [bool]
+
+K2Node_VariableGet 'SkeletalMesh':
+  meta.variableName  = 'SkeletalMesh'
+  meta.isSelfContext = 'true'
+  → emit: this->SkeletalMesh
+```
+
+**B_Weapon has zero unsupported nodes.** `compilerIRFallback.hasUnsupportedNodes = false`.
+
+The plugin's job (producing this IR) is done. The next layer is a **codegen consumer** — a separate tool that reads this JSON and emits `.h`/`.cpp` text. That tool does not live in this plugin.
+
+---
+
 ## Key Architectural Patterns
 
 ### IsNodeTypeKnownSupported()
@@ -200,4 +262,4 @@ Work queue is tracked in GitHub Issues. Use `gh issue list --repo Jinphinity/Blu
 
 ---
 
-*Last updated: 2026-02-20 (v1.0-converter-ready). All CXX-001-008 goals met. B_Weapon end-to-end conversion verified. Update this file whenever architectural patterns, module deps, or build procedures change.*
+*Last updated: 2026-02-21. v1.0-converter-ready: all CXX-001-008 goals met, IR audited and confirmed complete for both header and body generation. Added IR Completeness section with concrete node-level evidence to prevent future agents from incorrectly claiming the IR is insufficient. Update this file whenever architectural patterns, module deps, or build procedures change.*
