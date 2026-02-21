@@ -1688,122 +1688,6 @@ namespace
             }
         }
 
-        if (Data.StructuredGraphsExt.Num() == 0)
-        {
-            for (const FBS_GraphData& Graph : Data.StructuredGraphs)
-            {
-                for (const FString& NodeJsonText : Graph.Nodes)
-                {
-                    if (NodeJsonText.IsEmpty())
-                    {
-                        continue;
-                    }
-
-                    TSharedPtr<FJsonObject> NodeJson;
-                    const TSharedRef<TJsonReader<>> NodeReader = TJsonReaderFactory<>::Create(NodeJsonText);
-                    if (!FJsonSerializer::Deserialize(NodeReader, NodeJson) || !NodeJson.IsValid())
-                    {
-                        continue;
-                    }
-
-                    FString NodeType;
-                    if (!NodeJson->TryGetStringField(TEXT("nodeType"), NodeType))
-                    {
-                        NodeJson->TryGetStringField(TEXT("type"), NodeType);
-                    }
-
-                    // CR-036: capture node GUID for macro call-site mapping
-                    FString NodeGuid;
-                    NodeJson->TryGetStringField(TEXT("nodeGuid"), NodeGuid);
-
-                    FString MemberParent;
-                    if (NodeJson->TryGetStringField(TEXT("memberParent"), MemberParent))
-                    {
-                        AddDependencyText(MemberParent, Closure);
-                    }
-
-                    FString MemberName;
-                    if (NodeJson->TryGetStringField(TEXT("memberName"), MemberName))
-                    {
-                        AddDependencyText(MemberName, Closure);
-                    }
-
-                    const TSharedPtr<FJsonObject>* NodePropsObj = nullptr;
-                    if (NodeJson->TryGetObjectField(TEXT("nodeProperties"), NodePropsObj) && NodePropsObj && NodePropsObj->IsValid())
-                    {
-                        if (NodeType.Equals(TEXT("K2Node_MacroInstance"), ESearchCase::CaseSensitive))
-                        {
-                            FString MacroGraphPath;
-                            if ((*NodePropsObj)->TryGetStringField(TEXT("meta.macroGraphPath"), MacroGraphPath) && !MacroGraphPath.IsEmpty())
-                            {
-                                AddDependencyPath(MacroGraphPath, Closure);
-                                Closure.MacroGraphs.Add(MacroGraphPath);
-                                // CR-036: record call-site node GUID for this macro graph
-                                if (!NodeGuid.IsEmpty())
-                                {
-                                    Closure.MacroGraphCallSites.FindOrAdd(MacroGraphPath).Add(NodeGuid);
-                                }
-                            }
-
-                            FString MacroBlueprintPath;
-                            if ((*NodePropsObj)->TryGetStringField(TEXT("meta.macroBlueprintPath"), MacroBlueprintPath) && !MacroBlueprintPath.IsEmpty())
-                            {
-                                AddDependencyPath(MacroBlueprintPath, Closure);
-                                Closure.MacroBlueprints.Add(MacroBlueprintPath);
-                            }
-                        }
-
-                        for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*NodePropsObj)->Values)
-                        {
-                            FString ValueText;
-                            if (Pair.Value.IsValid())
-                            {
-                                Pair.Value->TryGetString(ValueText);
-                            }
-
-                            AddDependencyText(Pair.Key, Closure);
-                            AddDependencyText(ValueText, Closure);
-                        }
-                    }
-
-                    const TArray<TSharedPtr<FJsonValue>>* Pins = nullptr;
-                    if (NodeJson->TryGetArrayField(TEXT("pins"), Pins) && Pins)
-                    {
-                        for (const TSharedPtr<FJsonValue>& PinValue : *Pins)
-                        {
-                            const TSharedPtr<FJsonObject> PinObj = PinValue.IsValid() ? PinValue->AsObject() : nullptr;
-                            if (!PinObj.IsValid())
-                            {
-                                continue;
-                            }
-
-                            FString TextValue;
-                            if (PinObj->TryGetStringField(TEXT("objectPath"), TextValue))
-                            {
-                                AddDependencyPath(TextValue, Closure);
-                            }
-                            if (PinObj->TryGetStringField(TEXT("defaultObjectPath"), TextValue))
-                            {
-                                AddDependencyPath(TextValue, Closure);
-                            }
-                            if (PinObj->TryGetStringField(TEXT("valueObjectPath"), TextValue))
-                            {
-                                AddDependencyPath(TextValue, Closure);
-                            }
-                            if (PinObj->TryGetStringField(TEXT("objectType"), TextValue))
-                            {
-                                AddDependencyText(TextValue, Closure);
-                            }
-                            if (PinObj->TryGetStringField(TEXT("valueObjectType"), TextValue))
-                            {
-                                AddDependencyText(TextValue, Closure);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         return Closure;
     }
 
@@ -1925,26 +1809,9 @@ FBS_BlueprintData UBlueprintAnalyzer::AnalyzeBlueprint(UBlueprint* Blueprint)
 	Data.EventNodes = ExtractEventNodes(Blueprint);
 	Data.GraphNodes = ExtractGraphNodes(Blueprint, Data.TotalNodeCount);
 	
-	// CR-034: Dual-schema note.
-	// FBS_GraphData (StructuredGraphs) is the LEGACY schema: nodes are stringified JSON, execution
-	// flows are "NodeGuid:PinName->NodeGuid:PinName" strings. It exists for backward-compat only.
-	//
-	// FBS_GraphData_Ext (StructuredGraphsExt) is the CURRENT schema: nodes are FBS_NodeData structs,
-	// execution is TArray<FBS_FlowEdge>, and it adds DataLinks, GraphInputPins, GraphOutputPins.
-	// It is a strict superset of FBS_GraphData.
-	//
-	// Consolidation plan (CR-034 — deferred because of regression risk):
-	//   1. Verify that all consumers of StructuredGraphs[] (dependency closure fallback at line ~1691,
-	//      JSON serialization at ~6863, gameplay-tag collection at ~2120) are already superseded by
-	//      StructuredGraphsExt consumers.
-	//   2. Remove ExtractStructuredGraphs() call below and delete FBS_GraphData + its serialization block.
-	//   3. Remove the BuildDependencyClosure fallback branch (guarded by StructuredGraphsExt.Num()==0).
-	//   4. Remove FBS_GraphData and FBS_BlueprintData::StructuredGraphs from the header.
-	//   5. Run regression suite to verify zero regressions.
-	// Until then: both remain populated. StructuredGraphsExt is always authoritative.
-	Data.StructuredGraphs = ExtractStructuredGraphs(Blueprint, Data.TotalNodeCount);
-
-	// Extract extended structured graphs with proper JSON objects and flows (primary path)
+	// CR-034: Only ExtractStructuredGraphsExt is populated now (legacy FBS_GraphData removed).
+	// FBS_GraphData_Ext is the canonical schema with rich FBS_NodeData structs, FBS_FlowEdge exec,
+	// DataLinks, GraphInputPins, GraphOutputPins.
 	Data.StructuredGraphsExt = ExtractStructuredGraphsExt(Blueprint, Data.TotalNodeCount);
 
 	// Build node support report for converter gating
@@ -2133,93 +2000,49 @@ FBS_BlueprintData UBlueprintAnalyzer::AnalyzeBlueprint(UBlueprint* Blueprint)
 			Data.GameplayTags.Add(MoveTemp(TagData));
 		};
 
-		for (const FBS_GraphData& GraphData : Data.StructuredGraphs)
+		// CR-034: Gameplay tag collection now uses StructuredGraphsExt (FBS_NodeData/FBS_PinData structs).
+		for (const FBS_GraphData_Ext& GraphData : Data.StructuredGraphsExt)
 		{
-			for (const FString& NodeStr : GraphData.Nodes)
+			for (const FBS_NodeData& Node : GraphData.Nodes)
 			{
-				if (NodeStr.IsEmpty())
-				{
-					continue;
-				}
+				const FString& NodeType = Node.NodeType;
+				const FString& NodeTitle = Node.Title;
 
-				TSharedPtr<FJsonObject> NodeObj;
-				const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(NodeStr);
-				if (!FJsonSerializer::Deserialize(Reader, NodeObj) || !NodeObj.IsValid())
+				// Scan NodeProperties (TMap<FString, FString>) for GameplayTag values
+				for (const TPair<FString, FString>& Pair : Node.NodeProperties)
 				{
-					continue;
-				}
-
-				FString NodeType;
-				NodeObj->TryGetStringField(TEXT("nodeType"), NodeType);
-				FString NodeTitle;
-				NodeObj->TryGetStringField(TEXT("nodeTitle"), NodeTitle);
-
-				const TSharedPtr<FJsonObject>* NodePropsObj = nullptr;
-				if (NodeObj->TryGetObjectField(TEXT("nodeProperties"), NodePropsObj) && NodePropsObj && NodePropsObj->IsValid())
-				{
-					for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*NodePropsObj)->Values)
+					TSet<FString> TagNames;
+					CollectTagNamesFromText(Pair.Value, TagNames);
+					if (Pair.Key.Contains(TEXT("GameplayTag"), ESearchCase::IgnoreCase))
 					{
-						FString ValueText;
-						if (Pair.Value.IsValid())
-						{
-							Pair.Value->TryGetString(ValueText);
-						}
-
-						TSet<FString> TagNames;
-						CollectTagNamesFromText(ValueText, TagNames);
-						if (Pair.Key.Contains(TEXT("GameplayTag"), ESearchCase::IgnoreCase))
-						{
-							CollectTagNamesFromText(Pair.Key, TagNames);
-						}
-
-						for (const FString& TagName : TagNames)
-						{
-							UpsertGameplayTag(TagName, TEXT("GraphTagFlow"), GraphData.GraphName, NodeType, NodeTitle, Pair.Key);
-						}
+						CollectTagNamesFromText(Pair.Key, TagNames);
+					}
+					for (const FString& TagName : TagNames)
+					{
+						UpsertGameplayTag(TagName, TEXT("GraphTagFlow"), GraphData.GraphName, NodeType, NodeTitle, Pair.Key);
 					}
 				}
 
-				const TArray<TSharedPtr<FJsonValue>>* Pins = nullptr;
-				if (NodeObj->TryGetArrayField(TEXT("pins"), Pins) && Pins)
+				// Scan Pins for GameplayTag-typed pins
+				for (const FBS_PinData& Pin : Node.Pins)
 				{
-					for (const TSharedPtr<FJsonValue>& PinValue : *Pins)
+					const bool bGameplayTagPin =
+						Pin.ObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTag")) ||
+						Pin.ObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTagContainer")) ||
+						Pin.ValueObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTag")) ||
+						Pin.ValueObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTagContainer")) ||
+						Pin.ObjectType.Contains(TEXT("GameplayTag"), ESearchCase::IgnoreCase) ||
+						Pin.SubCategory.Contains(TEXT("GameplayTag"), ESearchCase::IgnoreCase);
+
+					if (bGameplayTagPin)
 					{
-						const TSharedPtr<FJsonObject> PinObj = PinValue.IsValid() ? PinValue->AsObject() : nullptr;
-						if (!PinObj.IsValid())
+						TSet<FString> TagNames;
+						CollectTagNamesFromText(Pin.DefaultValue, TagNames);
+						CollectTagNamesFromText(Pin.AutogeneratedDefaultValue, TagNames);
+						const FString PinName = Pin.Name.ToString();
+						for (const FString& TagName : TagNames)
 						{
-							continue;
-						}
-
-						FString ObjectPath;
-						PinObj->TryGetStringField(TEXT("objectPath"), ObjectPath);
-						FString ValueObjectPath;
-						PinObj->TryGetStringField(TEXT("valueObjectPath"), ValueObjectPath);
-						FString PinType;
-						PinObj->TryGetStringField(TEXT("pinType"), PinType);
-
-						const bool bGameplayTagPin =
-							ObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTag")) ||
-							ObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTagContainer")) ||
-							ValueObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTag")) ||
-							ValueObjectPath.Contains(TEXT("/Script/GameplayTags.GameplayTagContainer")) ||
-							PinType.Contains(TEXT("GameplayTag"), ESearchCase::IgnoreCase);
-
-						FString DefaultValue;
-						PinObj->TryGetStringField(TEXT("defaultValue"), DefaultValue);
-						FString AutogeneratedDefaultValue;
-						PinObj->TryGetStringField(TEXT("autogeneratedDefaultValue"), AutogeneratedDefaultValue);
-						FString PinName;
-						PinObj->TryGetStringField(TEXT("pinName"), PinName);
-
-						if (bGameplayTagPin)
-						{
-							TSet<FString> TagNames;
-							CollectTagNamesFromText(DefaultValue, TagNames);
-							CollectTagNamesFromText(AutogeneratedDefaultValue, TagNames);
-							for (const FString& TagName : TagNames)
-							{
-								UpsertGameplayTag(TagName, TEXT("GraphTagFlow"), GraphData.GraphName, NodeType, NodeTitle, PinName);
-							}
+							UpsertGameplayTag(TagName, TEXT("GraphTagFlow"), GraphData.GraphName, NodeType, NodeTitle, PinName);
 						}
 					}
 				}
@@ -2240,8 +2063,8 @@ FBS_BlueprintData UBlueprintAnalyzer::AnalyzeBlueprint(UBlueprint* Blueprint)
 		return A.TagName < B.TagName;
 	});
 	
-	UE_LOG(LogTemp, Warning, TEXT("Blueprint %s analysis complete - Variables: %d, Functions: %d, Components: %d, Nodes: %d, Graphs: %d"), 
-		*Data.BlueprintName, Data.Variables.Num(), Data.Functions.Num(), Data.Components.Num(), Data.TotalNodeCount, Data.StructuredGraphs.Num());
+	UE_LOG(LogTemp, Warning, TEXT("Blueprint %s analysis complete - Variables: %d, Functions: %d, Components: %d, Nodes: %d, Graphs: %d"),
+		*Data.BlueprintName, Data.Variables.Num(), Data.Functions.Num(), Data.Components.Num(), Data.TotalNodeCount, Data.StructuredGraphsExt.Num());
 	
 	return Data;
 }
@@ -6889,105 +6712,6 @@ TSharedPtr<FJsonObject> UBlueprintAnalyzer::BlueprintDataToJsonObject(const FBS_
 	}
 	JsonObject->SetArrayField(TEXT("timelines"), TimelineArray);
 
-    // CR-034: StructuredGraphs serialization (LEGACY path — see consolidation plan in AnalyzeBlueprint).
-    // This serializes the FBS_GraphData schema (string-node, string-exec arrays).
-    // StructuredGraphsExt below is the authoritative path. Both are emitted until CR-034 lands.
-    if (Data.StructuredGraphs.Num() > 0)
-    {
-        TArray<TSharedPtr<FJsonValue>> GraphsArray;
-        // Coverage map
-        TMap<FString, int32> NodeTypeCounts;
-
-        for (const FBS_GraphData& GraphData : Data.StructuredGraphs)
-        {
-            // Build graph object from legacy + structured analyzer
-            TSharedPtr<FJsonObject> G = MakeShareable(new FJsonObject);
-            G->SetStringField(TEXT("name"), GraphData.GraphName);
-            G->SetStringField(TEXT("graphType"), GraphData.GraphType);
-
-            // Nodes: reparse legacy strings to objects for output consistency (fallback)
-            TArray<TSharedPtr<FJsonValue>> NodesJson;
-            for (const FString& NodeStr : GraphData.Nodes)
-            {
-                TSharedPtr<FJsonObject> NodeObj;
-                TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(NodeStr);
-                if (FJsonSerializer::Deserialize(Reader, NodeObj) && NodeObj.IsValid())
-                {
-                    // Count node types for coverage
-                    FString NodeType;
-                    if (NodeObj->TryGetStringField(TEXT("nodeType"), NodeType))
-                    {
-                        NodeTypeCounts.FindOrAdd(NodeType)++;
-                    }
-                    NodesJson.Add(MakeShareable(new FJsonValueObject(NodeObj)));
-                }
-            }
-            G->SetArrayField(TEXT("nodes"), NodesJson);
-
-            // Execution edges: parse "NodeGuid:PinName->NodeGuid:PinName" format
-            TArray<TSharedPtr<FJsonValue>> ExecJson;
-            for (const FString& Flow : GraphData.ExecutionFlows)
-            {
-                FString Left, Right;
-                if (Flow.Split(TEXT("->"), &Left, &Right))
-                {
-                    FString SourceGuid, SourcePin;
-                    FString TargetGuid, TargetPin;
-                    
-                    // Parse source node:pin
-                    if (Left.Split(TEXT(":"), &SourceGuid, &SourcePin))
-                    {
-                        // New format with pin names
-                    }
-                    else
-                    {
-                        // Legacy format without pin names
-                        SourceGuid = Left;
-                        SourcePin = TEXT("execute");
-                    }
-                    
-                    // Parse target node:pin
-                    if (Right.Split(TEXT(":"), &TargetGuid, &TargetPin))
-                    {
-                        // New format with pin names
-                    }
-                    else
-                    {
-                        // Legacy format without pin names
-                        TargetGuid = Right;
-                        TargetPin = TEXT("execute");
-                    }
-                    
-                    TSharedPtr<FJsonObject> E = MakeShareable(new FJsonObject);
-                    E->SetStringField(TEXT("sourceNodeGuid"), SourceGuid);
-                    E->SetStringField(TEXT("sourcePinName"), SourcePin);
-                    E->SetStringField(TEXT("targetNodeGuid"), TargetGuid);
-                    E->SetStringField(TEXT("targetPinName"), TargetPin);
-                    ExecJson.Add(MakeShareable(new FJsonValueObject(E)));
-                }
-            }
-            G->SetArrayField(TEXT("execution"), ExecJson);
-
-            GraphsArray.Add(MakeShareable(new FJsonValueObject(G)));
-        }
-
-        JsonObject->SetArrayField(TEXT("structuredGraphs"), GraphsArray);
-
-        // Coverage summary
-        TSharedPtr<FJsonObject> Coverage = MakeShareable(new FJsonObject);
-        TSharedPtr<FJsonObject> NodeTypes = MakeShareable(new FJsonObject);
-        for (const TPair<FString, int32>& P : NodeTypeCounts)
-        {
-            NodeTypes->SetNumberField(P.Key, P.Value);
-        }
-        Coverage->SetNumberField(TEXT("totalNodeCount"), Data.TotalNodeCount);
-        Coverage->SetObjectField(TEXT("nodeTypeCounts"), NodeTypes);
-        Coverage->SetArrayField(TEXT("unsupportedNodeTypes"), BuildStringArray(Data.UnsupportedNodeTypes));
-        Coverage->SetArrayField(TEXT("partiallySupportedNodeTypes"), BuildStringArray(Data.PartiallySupportedNodeTypes));
-        JsonObject->SetObjectField(TEXT("coverage"), Coverage);
-    }
-    
-    // NEW: Serialize StructuredGraphsExt with proper JSON objects
     if (Data.StructuredGraphsExt.Num() > 0)
     {
         TArray<TSharedPtr<FJsonValue>> GraphsArray;
