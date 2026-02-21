@@ -480,34 +480,6 @@ struct BLUEPRINTSERIALIZER_API FBS_UserDefinedEnumSchema
 };
 
 /**
- * Structure for graph data with structured nodes
- * Represents a complete Blueprint graph with nodes and connections
- */
-USTRUCT(BlueprintType)
-struct BLUEPRINTSERIALIZER_API FBS_GraphData
-{
-	GENERATED_BODY()
-
-	FBS_GraphData()
-	{
-	}
-
-    UPROPERTY()
-    FString GraphName;
-	
-    UPROPERTY()
-    FString GraphType; // "Ubergraph", "Function", "Macro"
-	
-    // Legacy: nodes as stringified JSON (kept for backward compatibility)
-    UPROPERTY()
-    TArray<FString> Nodes;
-	
-    // Legacy: execution as "SourceGuid->TargetGuid"
-    UPROPERTY()
-    TArray<FString> ExecutionFlows; // Format: "SourceGuid->TargetGuid"
-};
-
-/**
  * Structured pin data for nodes
  * Represents input/output pins on Blueprint nodes
  */
@@ -1101,11 +1073,7 @@ struct BLUEPRINTSERIALIZER_API FBS_BlueprintData
 	UPROPERTY()
 	TArray<FString> GraphNodes;
 	
-	// Structured graph data (new approach)
-	UPROPERTY()
-	TArray<FBS_GraphData> StructuredGraphs;
-	
-	// Extended structured graph data with proper JSON objects
+	// Structured graph data
 	UPROPERTY()
 	TArray<FBS_GraphData_Ext> StructuredGraphsExt;
 	
@@ -1258,12 +1226,7 @@ private:
 	static TArray<FString> ExtractGraphNodes(UBlueprint* Blueprint, int32& OutTotalNodeCount);
 	
 	/**
-	 * Extract structured graph data from Blueprint (new approach)
-	 */
-	static TArray<FBS_GraphData> ExtractStructuredGraphs(UBlueprint* Blueprint, int32& OutTotalNodeCount);
-	
-	/**
-	 * Extract extended structured graph data with proper JSON objects
+	 * Extract structured graph data from Blueprint
 	 */
 	static TArray<FBS_GraphData_Ext> ExtractStructuredGraphsExt(UBlueprint* Blueprint, int32& OutTotalNodeCount);
 
