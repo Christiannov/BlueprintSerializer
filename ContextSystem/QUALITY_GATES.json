@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0",
+  "description": "Quality gates for PRIME DIRECTIVE Phase 2 spec validation. Every spec must pass all gates to be considered reconstruction-complete.",
+  "gates": {
+    "L1_structural": {
+      "description": "Every IR field has a spec counterpart",
+      "checks": [
+        "Every detailedVariable (except UberGraphFrame) appears in spec Variables section",
+        "Every detailedFunction (except ExecuteUbergraph_*) appears in spec Functions section",
+        "Every detailedComponent appears in spec Components section",
+        "Every implementedInterface is mentioned in spec",
+        "Every classDefaultValueDelta property appears in CDO Overrides section",
+        "Every dependencyClosure.moduleNames appears in Dependencies section",
+        "compilerIRFallback.hasUnsupportedNodes status noted in IR Notes",
+        "Identity section exists with Path, Parent, Generated Class",
+        "Purpose section exists"
+      ],
+      "required": true,
+      "error_threshold": 0
+    },
+    "L2_accuracy": {
+      "description": "Types, defaults, flags match the IR exactly",
+      "checks": [
+        "Variable types match IR typeCategory + typeObjectPath",
+        "Replicated variables mention replication in spec",
+        "Network functions (Server/Client/Multicast) mention RPC type in spec",
+        "Override functions mention override status",
+        "Default values for key properties match IR"
+      ],
+      "required": true,
+      "error_threshold": 0
+    },
+    "L3_logic_coverage": {
+      "description": "Every graph entry point and branch is represented in pseudo-code",
+      "checks": [
+        "Every K2Node_Event in EventGraph has a corresponding section in spec Logic",
+        "Every K2Node_FunctionEntry for user functions has logic description",
+        "Branch conditions (K2Node_IfThenElse) are described with their conditions",
+        "Spec line count is proportional to graph complexity (not a 2-line summary of 50 exec edges)",
+        "Key function calls (meta.functionName) appear in pseudo-code"
+      ],
+      "required": true,
+      "warning_threshold": 3,
+      "error_threshold": 0
+    },
+    "L4_reconstruction": {
+      "description": "An AI reading ONLY the spec can reconstruct a functionally equivalent Blueprint",
+      "checks": [
+        "AI reconstruction produces matching variable declarations (count, names, types)",
+        "AI reconstruction produces matching function signatures",
+        "AI reconstruction produces equivalent logic flow",
+        "AI reconstruction produces matching component hierarchy",
+        "AI reconstruction identifies same C++ dependencies"
+      ],
+      "required": false,
+      "notes": "L4 is AI-driven and expensive. Run selectively on high-priority specs or after L1-L3 pass."
+    },
+    "L5_convergence": {
+      "description": "C++ from spec matches C++ from direct IR conversion",
+      "checks": [
+        "Path A (IR → C++ converter) and Path B (IR → spec → AI C++) produce equivalent headers",
+        "Path A and Path B produce equivalent function implementations",
+        "Both paths reference the same #includes and module dependencies"
+      ],
+      "required": false,
+      "notes": "L5 requires the C++ codegen tool (not yet built). This is the ultimate quality bar."
+    }
+  },
+  "corpus_thresholds": {
+    "L1_pass_rate_minimum": 95.0,
+    "L2_pass_rate_minimum": 90.0,
+    "L3_pass_rate_minimum": 85.0,
+    "total_error_budget": 50,
+    "notes": "These thresholds gate whether a corpus-wide spec generation run is acceptable. Individual failures are logged to _VALIDATION_FAILURES.md for re-generation."
+  },
+  "self_improvement_rules": {
+    "failure_pattern_threshold": 5,
+    "description": "When the same type of failure appears in 5+ specs, update ANALYSIS_PLAYBOOK.md with a new rule to prevent it in future generations.",
+    "feedback_loop": [
+      "1. Run validate_specs.py → produces _VALIDATION_FAILURES.md",
+      "2. AI reads _VALIDATION_FAILURES.md, identifies recurring patterns",
+      "3. AI updates ANALYSIS_PLAYBOOK.md with new rules/warnings for those patterns",
+      "4. AI re-generates failing specs using updated playbook",
+      "5. Re-run validate_specs.py → confirm failures resolved",
+      "6. Commit updated playbook + fixed specs",
+      "7. Repeat until L1-L3 pass rate meets thresholds"
+    ]
+  }
+}
