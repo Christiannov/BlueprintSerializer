@@ -262,4 +262,44 @@ Work queue is tracked in GitHub Issues. Use `gh issue list --repo Jinphinity/Blu
 
 ---
 
+## Context Engineering System — Spec Quality & Self-Improving Loops
+
+The BlueprintSerializer plugin feeds into the PRIME DIRECTIVE pipeline: the JSON IR it
+produces is consumed by AI agents to generate per-Blueprint markdown specs. The spec
+quality system lives in `ContextSystem/` and uses a three-loop autonomous protocol.
+
+**Any AI receiving this context must run all applicable loops. The loops are mandatory.**
+
+```
+LOOP A — Extraction Regression (run after any plugin code change)
+  Goal: all 14 gates pass in REGRESSION_BASELINE.json
+  Script: Scripts/Run-RegressionSuite.ps1
+  See: ContextSystem/ITERATION_LOOP.md — "LOOP A" section
+
+LOOP B — Spec Quality (run when L1 pass rate < 95%)
+  Goal: L1 ≥ 95%, L2 ≥ 90%, L3 ≥ 85%
+  Tool: Scripts/validate_specs.py
+  See: ContextSystem/ITERATION_LOOP.md — "LOOP B" section
+
+LOOP C — Meta-Improvement (run after every LOOP B cycle)
+  Goal: improve the process that improves the specs
+  See: ContextSystem/ITERATION_LOOP.md — "LOOP C" section
+```
+
+| File | Purpose |
+|---|---|
+| `ContextSystem/PRIME_DIRECTIVE.md` | The universal mandate — why this exists |
+| `ContextSystem/ANALYSIS_PLAYBOOK.md` | 8 CRITICAL RULES for AI spec generation |
+| `ContextSystem/ITERATION_LOOP.md` | All three loops — full step-by-step protocol |
+| `ContextSystem/QUALITY_GATES.json` | Machine-readable thresholds + loop definitions |
+| `ContextSystem/SCHEMA_REFERENCE.md` | JSON IR schema documentation |
+| `Scripts/validate_specs.py` | Validates specs against JSON IR (LOOP B) |
+| `Scripts/Run-RegressionSuite.ps1` | Extraction regression harness (LOOP A) |
+| `REGRESSION_BASELINE.json` | 14-gate pass thresholds for LOOP A |
+
+**Reading order for spec generation work:**
+PRIME_DIRECTIVE → SCHEMA_REFERENCE → ANALYSIS_PLAYBOOK → generate specs → run LOOP B → after each B cycle run LOOP C.
+
+---
+
 *Last updated: 2026-02-21. v1.0-converter-ready: all CXX-001-008 goals met, IR audited and confirmed complete for both header and body generation. Added IR Completeness section with concrete node-level evidence to prevent future agents from incorrectly claiming the IR is insufficient. Update this file whenever architectural patterns, module deps, or build procedures change.*
