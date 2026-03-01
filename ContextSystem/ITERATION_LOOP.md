@@ -1,24 +1,30 @@
-# ITERATION LOOP — Autonomous Spec Quality Improvement Protocol
+# ITERATION LOOP — Autonomous Self-Improving Quality Protocol
 
 > **Give this document to any AI.** It contains everything needed to drive
-> spec quality from the current state to 100% L1/L2/L3 pass rate autonomously,
-> without human intervention between iterations.
+> spec quality from the current state to 100% pass rate autonomously.
+> The loop also covers the extraction regression harness and includes a
+> META-IMPROVEMENT layer: the loop improves itself by analyzing the quality
+> of its own improvements.
 
 ---
 
-## What You Are Doing
+## Three Loops in This System
 
-The PRIME DIRECTIVE (see `PRIME_DIRECTIVE.md`) requires that every Lyra Blueprint
-spec be **reconstruction-complete** — readable alone to recreate the Blueprint.
-485 specs were generated. A validator confirms whether they meet the bar.
+```
+LOOP A: Extraction Regression (run if BlueprintSerializer code changes)
+  → test extractor → fix plugin → commit → loop until all 14 gates pass
 
-Your job: **run the validator → read failures → fix root causes → loop until done.**
+LOOP B: Spec Quality (run always when pass rate < thresholds)
+  → validate specs → fix specs → update playbook → commit → loop until ≥95% pass
 
-You do NOT need to understand the whole system. Each iteration is:
-1. See what's broken
-2. Fix it
-3. Confirm improvement
-4. Repeat
+LOOP C: Meta-Improvement (run after every LOOP B cycle)
+  → analyze IF the improvements were good → update the improvement process itself
+  → commit updated ITERATION_LOOP.md / ANALYSIS_PLAYBOOK.md → next LOOP B cycle
+```
+
+All three loops are **mandatory when applicable**. After any code change to
+BlueprintSerializer, run A. After any spec generation or fix session, run B.
+After every B cycle, run C to make B smarter.
 
 ---
 
@@ -26,18 +32,151 @@ You do NOT need to understand the whole system. Each iteration is:
 
 | File | Purpose |
 |------|---------|
-| `Plugins/BlueprintSerializer/Scripts/validate_specs.py` | Validation engine |
-| `Plugins/BlueprintSerializer/ContextSystem/QUALITY_GATES.json` | Pass rate thresholds |
-| `Plugins/BlueprintSerializer/ContextSystem/ANALYSIS_PLAYBOOK.md` | Spec generation rules |
+| `Plugins/BlueprintSerializer/Scripts/validate_specs.py` | Spec validation engine |
+| `Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1` | Extraction regression harness |
+| `Plugins/BlueprintSerializer/REGRESSION_BASELINE.json` | Baseline metrics for regression gates |
+| `Plugins/BlueprintSerializer/ContextSystem/QUALITY_GATES.json` | Pass rate thresholds + self-improvement rules |
+| `Plugins/BlueprintSerializer/ContextSystem/ANALYSIS_PLAYBOOK.md` | Spec generation rules (8 CRITICAL RULES) |
 | `Plugins/BlueprintSerializer/ContextSystem/PRIME_DIRECTIVE.md` | The mandate |
+| `Plugins/BlueprintSerializer/ContextSystem/ITERATION_LOOP.md` | This file — the autonomous loop protocol |
 | `docs_Lyra/BlueprintSpecs/` | All spec files (*.md) |
 | `docs_Lyra/BlueprintSpecs/_VALIDATION_FAILURES.md` | Current failures (auto-updated) |
 | `docs_Lyra/BlueprintSpecs/_CHECKLIST.md` | Corpus checklist |
 | `Saved/BlueprintExports/BP_SLZR_All_*/` | Source JSON IR for all BPs |
+| `Saved/BlueprintExports/BP_SLZR_RegressionRun_*.json` | Regression suite reports (auto-generated) |
 
 ---
 
-## Iteration Loop — Step by Step
+## LOOP A — Extraction Regression
+
+**Trigger:** Any non-trivial change to `Plugins/BlueprintSerializer/` C++ source code.
+**Purpose:** Verify the extractor still produces complete, well-formed JSON IR across all 14 gates.
+**Run from:** Project root (`C:\Users\jinph\Documents\Unreal Projects\LyraStarterGame`)
+
+### When to Run LOOP A
+
+- After fixing a bug in the extractor
+- After adding a new node type handler
+- After modifying schema fields in the JSON output
+- Before committing any plugin source changes
+- When `_VALIDATION_FAILURES.md` shows new error types that weren't there before
+  (this can indicate the JSON IR changed, breaking previously passing specs)
+
+### LOOP A — Step by Step
+
+#### A1. Rebuild the Plugin
+
+```bash
+powershell -Command "& 'C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat' \
+  LyraEditor Win64 Development \
+  'C:\Users\jinph\Documents\Unreal Projects\LyraStarterGame\LyraStarterGame.uproject' \
+  -waitmutex 2>&1"
+```
+
+Fix any compile errors before proceeding. The plugin DLL is produced as a side-effect
+of building `LyraEditor`. Never build `BlueprintSerializerEditor` — it has no Target.cs.
+
+#### A2. Run the Regression Suite
+
+```powershell
+# Full run (re-exports all 485 BPs, then validates):
+powershell -File "Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1"
+
+# Skip re-export (use existing Saved/BlueprintExports/ data):
+powershell -File "Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1" -SkipExport
+
+# Custom export dir:
+powershell -File "Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1" `
+  -ExportDir "Saved/BlueprintExports/BP_SLZR_All_<timestamp>"
+```
+
+The suite runs `UnrealEditor-Cmd.exe` headless and produces:
+- `Saved/BlueprintExports/BP_SLZR_RegressionRun_<timestamp>.json` — suite report
+- Exit code 0 = all gates pass, exit code 2 = one or more gates fail
+
+#### A3. Read the Suite Report
+
+```bash
+# Find the latest regression report:
+ls Saved/BlueprintExports/BP_SLZR_RegressionRun_*.json
+# Read the most recent one
+```
+
+The report contains:
+- `suitePass`: true/false
+- `failures[]`: list of gate names that failed
+- `validationReportPath`: path to detailed validation JSON
+- `curveAuditReportPath`: path to curve audit JSON
+
+#### A4. Check the 14 Gates
+
+All 14 gates in `REGRESSION_BASELINE.json` must pass:
+
+| Gate | What it checks |
+|------|---------------|
+| `manifestPresent` | Export manifest file exists |
+| `manifestCountsMatch` | Manifest BP count ≥ 485 |
+| `parseErrorsZero` | Zero BPs had JSON parse errors |
+| `requiredKeysPresent` | All required top-level keys in every export |
+| `variableDeclarationCoverage` | All 3133 variables have declaration specifiers |
+| `functionDeclarationCoverage` | All 936 functions have declaration specifiers |
+| `variableReplicationShape` | All 3133 variables have replication shape |
+| `functionNetworkShape` | All 936 functions have network shape |
+| `classConfigFlagShape` | All 485 BPs have config flag shape |
+| `componentOverrideShape` | All 818 components present |
+| `dependencyClosureCoverage` | All 485 BPs have non-empty dependency closure |
+| `includeHintsCoverage` | All 485 BPs have non-empty include hints |
+| `compilerIRFallbackShape` | All 485 BPs have compilerIRFallback shape |
+| `macroDependencyClosureShape` | All 485 BPs have macro dependency closure shape |
+
+#### A5. Fix Failing Gates
+
+If any gate fails:
+
+1. **Read the gate failure message** from `failures[]` in the suite report
+2. **Read the detailed validation JSON** at `validationReportPath`
+3. **Identify which BP(s) caused the failure** — look for BPs with counts below baseline
+4. **Read the relevant C++ source** in `Plugins/BlueprintSerializer/Source/`
+5. **Fix the extraction logic** — add missing fields, fix serialization bugs, etc.
+6. **Rebuild (A1) and re-run (A2)** — loop until all 14 gates pass
+
+Common gate failure causes:
+- `parseErrorsZero`: JSON serialization bug (unescaped strings, invalid UTF-8)
+- `variableDeclarationCoverage`: new variable property not being serialized
+- `dependencyClosureCoverage`: module resolution failing for new BP types
+- `manifestCountsMatch`: newly added BPs not being discovered by the exporter
+
+#### A6. Update Baseline (If Intentional Count Change)
+
+If you intentionally added new BPs, node types, or fields:
+
+```bash
+# Read the validation report to get new counts
+# Then update REGRESSION_BASELINE.json with the new minimum metrics
+# Commit: "Regression: update baseline for [reason]"
+```
+
+Never lower baseline numbers without explicit justification.
+
+#### A7. Commit Passing State
+
+```bash
+git add Plugins/BlueprintSerializer/
+git commit -m "BlueprintSerializer: [description] — all 14 regression gates pass"
+```
+
+The commit message must confirm gate pass status so git history is a regression log.
+
+### LOOP A — Stopping Criteria
+
+All 14 gates in `REGRESSION_BASELINE.json` pass. Suite exits with code 0.
+
+---
+
+## LOOP B — Spec Quality
+
+**Trigger:** After any spec generation or fix session. At the start of any session where
+pass rates are below thresholds. This loop runs until L1 ≥ 95%.
 
 ### STEP 0: Orient (First Iteration Only)
 
@@ -78,7 +217,8 @@ This overwrites `_VALIDATION_FAILURES.md` with current results.
 Read `docs_Lyra/BlueprintSpecs/_VALIDATION_FAILURES.md`.
 
 Check the Summary section first:
-- If **Pass rate ≥ 95%** → run one more validation to confirm, then **DONE**.
+- If **Pass rate ≥ 95%** → run one more validation to confirm, then **DONE with LOOP B**.
+  Proceed to LOOP C (Meta-Improvement).
 - Otherwise, continue.
 
 Count recurring error patterns in the Failures table:
@@ -209,12 +349,12 @@ Check the new pass rate. Compare to QUALITY_GATES.json thresholds:
 - L2 pass rate ≥ 90% ✓
 - L3 pass rate ≥ 85% ✓
 
-If all thresholds met: **DONE**. Commit the final validation report.
-Otherwise: continue the loop.
+If all thresholds met: **DONE with LOOP B**. Commit the final validation report.
+Proceed to LOOP C. Otherwise: continue the loop.
 
 ---
 
-## Stopping Criteria
+### LOOP B — Stopping Criteria
 
 The loop terminates when ALL of these are true:
 
@@ -227,7 +367,188 @@ The loop terminates when ALL of these are true:
 
 ---
 
-## How to Handle Difficult Cases
+## LOOP C — Meta-Improvement
+
+**Trigger:** After every complete LOOP B cycle (one pass through STEP 1 → STEP 7).
+**Purpose:** Analyze whether the improvements were good quality, then improve the improvement
+process itself. This is the mechanism by which the system gets smarter about getting smarter.
+
+LOOP C does not fix specs. It fixes the *process* that fixes specs.
+
+### Why LOOP C Exists
+
+LOOP B can converge to 95% with bad practices:
+- Playbook rules that are too vague to follow reliably
+- Playbook rules that address symptoms rather than root causes
+- An improvement process that works for current failures but will miss future ones
+- An AI that regenerates specs correctly but can't explain WHY the rule works
+
+LOOP C catches these problems. It asks: **were the improvements actually good?**
+Not just "did the pass rate go up" but "did the process that caused the pass rate
+to go up produce rules that will prevent the same failures in the future?"
+
+---
+
+### LOOP C — Step by Step
+
+#### C1. Gather the Iteration Evidence
+
+Collect the evidence from the just-completed LOOP B cycle:
+
+1. **Pass rate delta**: what was X% before, what is Y% now?
+2. **Playbook rules added**: which new CRITICAL RULES were added in STEP 5?
+3. **Specs regenerated**: which BPs were fixed, and what errors did they have?
+4. **Git log**: read the commit messages from this cycle
+5. **Remaining failures**: read current `_VALIDATION_FAILURES.md` — what still fails?
+
+```bash
+# See what changed in this iteration
+git log --oneline -10
+
+# Check current failure state
+# Read docs_Lyra/BlueprintSpecs/_VALIDATION_FAILURES.md (Summary section)
+```
+
+---
+
+#### C2. Analyze Rule Quality
+
+For each CRITICAL RULE added during STEP 5 of LOOP B, ask these questions:
+
+**Q1: Is the rule precise enough to be machine-verifiable?**
+- A rule like "List all variables" is good — it has a clear pass/fail test.
+- A rule like "Be thorough" is bad — no AI can reliably follow it.
+- Fix: rewrite vague rules with explicit field names, counts, or format requirements.
+
+**Q2: Does the rule address the root cause or just the symptom?**
+- Symptom rule: "Don't forget CDO properties" — doesn't explain WHY they're forgotten.
+- Root cause rule: "CDO Overrides must come from `classDefaultValueDelta`, not
+  `classDefaultValues`. AIs frequently read the wrong field. Always check the key
+  name in the JSON before writing CDO rows."
+- Fix: rewrite rules to explain the mechanism behind the failure.
+
+**Q3: Would a fresh AI reading only the playbook produce a passing spec?**
+- Read the CRITICAL RULES section of `ANALYSIS_PLAYBOOK.md` as if you have never
+  seen a spec before. Can you produce a correct spec from just the rules?
+- If not — identify the gap and add it.
+
+**Q4: Are rules ordered by importance?**
+- CRITICAL RULES should be ordered so that the highest-impact failures are covered first.
+- Missing variables (most common failure) should be RULE 2 or earlier.
+- Fix: reorder rules so most-common failures appear first.
+
+**Q5: Does the rule include a concrete example of CORRECT vs INCORRECT spec content?**
+- Rules without examples are harder to follow reliably.
+- Fix: add a "WRONG" and "RIGHT" example to any rule that lacks one.
+
+---
+
+#### C3. Analyze Improvement Process Quality
+
+Beyond individual rules, analyze the LOOP B process itself:
+
+**P1: Were specs fully regenerated or spot-patched?**
+- Spot-patching (adding only the missing row) often misses other problems in the same spec.
+- Full regeneration (rewrite from JSON IR) is always more reliable.
+- Check: do any specs that were "fixed" this cycle still have errors? If yes, spot-patching
+  is the likely cause. Update STEP 4 instructions to favor full regeneration.
+
+**P2: Were BPs processed in the right order?**
+- High-error BPs fixed first = maximum pass rate improvement per unit of work.
+- If the order deviated, note why and update STEP 3.
+
+**P3: Was the batch size (10-20 BPs per commit) appropriate?**
+- If context was running out before 10 BPs, the batch size should be smaller.
+- If BPs were simple data-only types, 20+ per batch may be fine.
+- Update STEP 4f batch size guidance if evidence suggests a better number.
+
+**P4: Did any new error categories appear after fixes?**
+- If fixing variable tables revealed missing CDO sections (because the spec was rewritten),
+  that's expected. If entirely new error types appeared from nowhere, this may indicate
+  a validator bug or a JSON IR change. Document this.
+
+**P5: How long did the cycle take?**
+- If the cycle took more than one AI session, note which steps were slowest.
+- Long steps indicate either too-large batches or insufficient guidance in the playbook.
+
+---
+
+#### C4. Update the Improvement Spec
+
+Based on the analysis in C2 and C3:
+
+1. **Update `ANALYSIS_PLAYBOOK.md`**: refine any CRITICAL RULES that were vague,
+   add examples, fix rule ordering, add root-cause explanations.
+
+2. **Update `ITERATION_LOOP.md` (this document)**: update the protocol steps if
+   the process analysis (C3) found better approaches. Update the "Current State"
+   section with the new pass rate and remaining priorities.
+
+3. **Update `QUALITY_GATES.json`**: if `known_resolved_patterns` should be updated,
+   or if new thresholds make sense given current state.
+
+4. **Update `PRIME_DIRECTIVE.md`**: if the mandate itself needs clarification based
+   on what was learned (rare, but possible for fundamental misunderstandings).
+
+Commit each update separately with clear messages:
+```bash
+git commit -m "Playbook: refine RULE N — add example, clarify root cause"
+git commit -m "IterationLoop: update LOOP C guidance for [pattern]"
+git commit -m "QualityGates: add resolved pattern [name]"
+```
+
+---
+
+#### C5. Score the Iteration
+
+Record a brief self-assessment of the iteration quality:
+
+```
+Iteration N Meta-Assessment:
+- Pass rate delta: X% → Y% (+Z%)
+- BPs fixed: N
+- New rules added: N
+- Rules refined: N
+- Root causes addressed: yes/partial/no
+- Fresh-AI test: would a new AI produce passing specs from playbook alone? yes/partial/no
+- Process changes made: [description]
+- Confidence the next iteration will be faster: high/medium/low
+- Reason: [one sentence]
+```
+
+This assessment should be written to a comment in `QUALITY_GATES.json`
+under `current_status.last_meta_assessment`, or committed as a brief git message.
+
+---
+
+#### C6. Trigger Next LOOP B Cycle
+
+After LOOP C completes, immediately run LOOP B again (starting at STEP 1).
+
+The improvements from LOOP C take effect in the next B cycle:
+- Better playbook rules → fewer errors in the next batch of spec regenerations
+- Better process guidance → faster spec fixes
+- Better understanding of root causes → fewer repeat failures
+
+Keep cycling B → C → B → C until LOOP B's stopping criteria are met.
+
+---
+
+### LOOP C — Stopping Criteria
+
+LOOP C does not have its own stopping criteria. It runs after every LOOP B cycle
+until LOOP B reaches ≥ 95% L1 pass rate. At that point:
+
+1. Run one final LOOP C to document what was learned
+2. Ensure `ANALYSIS_PLAYBOOK.md` reflects all the lessons from the full run
+3. The final playbook state should be good enough that a fresh AI generating
+   specs from scratch produces ≥ 95% passing specs WITHOUT needing LOOP B at all
+
+**That is the ultimate goal of LOOP C:** make LOOP B unnecessary for new projects.
+
+---
+
+## How to Handle Difficult Cases (LOOP B)
 
 ### Blueprint has 20+ variables and many are missing
 
@@ -279,21 +600,7 @@ Highest-priority BPs to fix (ordered by error count):
 - B_WeaponImpacts (14), B_Bomb_Base (13), B_ControlPointScoring (13)
 - B_ControlPointVolume (13), B_Grenade (12), GA_Hero_Dash (12)
 
----
-
-## Self-Improvement Protocol
-
-After each iteration, update this document's "Current State" section with:
-- New pass rate
-- New top failure patterns
-- Updated priority list
-
-After the playbook is updated (Step 5), verify the new rule would have caught
-the pattern you just fixed. If not, refine the rule.
-
-The goal: by iteration 3-5, ANALYSIS_PLAYBOOK.md should be comprehensive enough
-that a fresh AI generating specs from scratch produces near-100% passing specs
-WITHOUT needing the iteration loop at all.
+*Update this section after every LOOP B cycle.*
 
 ---
 
@@ -394,3 +701,4 @@ Full coverage — no unsupported nodes.
 
 *This document is part of the PRIME DIRECTIVE Context Engineering System.*
 *Update it after each iteration to reflect the current state of the corpus.*
+*Update LOOP C guidance after each meta-improvement cycle to make the next cycle smarter.*

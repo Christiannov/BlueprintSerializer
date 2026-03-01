@@ -1,6 +1,6 @@
 {
-  "schemaVersion": "1.1",
-  "description": "Quality gates for PRIME DIRECTIVE Phase 2 spec validation. Every spec must pass all gates to be considered reconstruction-complete. The self_improvement_rules section defines the MANDATORY autonomous loop that any AI must execute until thresholds are met.",
+  "schemaVersion": "1.2",
+  "description": "Quality gates for PRIME DIRECTIVE Phase 2 spec validation. Every spec must pass all gates to be considered reconstruction-complete. The self_improvement_rules section defines the MANDATORY three-loop autonomous system that any AI must execute: LOOP A (extraction regression), LOOP B (spec quality), LOOP C (meta-improvement).",
   "gates": {
     "L1_structural": {
       "description": "Every IR field has a spec counterpart",
@@ -72,39 +72,104 @@
     "L2_pass_rate_minimum": 90.0,
     "L3_pass_rate_minimum": 85.0,
     "total_error_budget": 50,
-    "notes": "These thresholds gate whether a corpus-wide spec generation run is acceptable. Individual failures are logged to _VALIDATION_FAILURES.md for re-generation. The loop runs until ALL thresholds are met."
+    "notes": "These thresholds gate whether a corpus-wide spec generation run is acceptable. Individual failures are logged to _VALIDATION_FAILURES.md for re-generation. LOOP B runs until ALL thresholds are met."
+  },
+  "extraction_regression_gates": {
+    "description": "LOOP A gates — must all pass after any BlueprintSerializer plugin code change",
+    "harness_script": "Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1",
+    "baseline_file": "Plugins/BlueprintSerializer/REGRESSION_BASELINE.json",
+    "gate_count": 14,
+    "gates": [
+      "manifestPresent",
+      "manifestCountsMatch",
+      "parseErrorsZero",
+      "requiredKeysPresent",
+      "variableDeclarationCoverage",
+      "functionDeclarationCoverage",
+      "variableReplicationShape",
+      "functionNetworkShape",
+      "classConfigFlagShape",
+      "componentOverrideShape",
+      "dependencyClosureCoverage",
+      "includeHintsCoverage",
+      "compilerIRFallbackShape",
+      "macroDependencyClosureShape"
+    ],
+    "stopping_condition": "Suite exits with code 0 (suitePass=true in BP_SLZR_RegressionRun_*.json)",
+    "notes": "Run after any non-trivial change to BlueprintSerializer C++ source. Build target is LyraEditor (never BlueprintSerializerEditor). Report written to Saved/BlueprintExports/BP_SLZR_RegressionRun_<timestamp>.json."
   },
   "self_improvement_rules": {
+    "schemaVersion": "1.2",
     "failure_pattern_threshold": 5,
-    "description": "MANDATORY AUTONOMOUS LOOP: Any AI receiving this context MUST run this loop until corpus_thresholds are met. The loop is not optional — a spec corpus that has not passed validation has not fulfilled the PRIME DIRECTIVE.",
-    "mandatory_loop": {
+    "description": "MANDATORY THREE-LOOP AUTONOMOUS SYSTEM: Any AI receiving this context MUST run all applicable loops. The system is not optional — a spec corpus that has not passed validation has not fulfilled the PRIME DIRECTIVE.",
+    "loop_A_extraction_regression": {
+      "trigger": "After any change to BlueprintSerializer plugin C++ source code",
+      "stopping_condition": "All 14 gates pass (suitePass=true, exit code 0)",
+      "steps": [
+        "STEP A1 — REBUILD: Build LyraEditor (not the plugin name). Fix any compile errors.",
+        "STEP A2 — RUN SUITE: powershell -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1",
+        "STEP A3 — READ REPORT: Read Saved/BlueprintExports/BP_SLZR_RegressionRun_*.json. Check suitePass.",
+        "STEP A4 — FIX: If suitePass=false, read failures[], fix plugin C++, return to A1.",
+        "STEP A5 — COMMIT: git commit confirming all 14 gates pass in the message."
+      ]
+    },
+    "loop_B_spec_quality": {
       "trigger": "After any spec generation run, OR at the start of any session where pass rates are below thresholds",
       "stopping_condition": "L1 pass rate >= 95% AND L2 pass rate >= 90% AND L3 pass rate >= 85%",
       "steps": [
-        "STEP 1 — VALIDATE: Run validate_specs.py to produce _VALIDATION_FAILURES.md. Read the Summary section. If thresholds met, STOP.",
-        "STEP 2 — ANALYZE: Read _VALIDATION_FAILURES.md. Count unique error patterns. Note any pattern appearing 5+ times.",
-        "STEP 3 — UPDATE PLAYBOOK: For each pattern appearing 5+ times that lacks a CRITICAL RULE in ANALYSIS_PLAYBOOK.md, add one. Commit: 'Playbook: add rule for [pattern]'",
-        "STEP 4 — REGENERATE: Fix failing specs ordered by error count (highest first). Fully regenerate from JSON IR — do NOT spot-patch. Batch 10-20 specs per commit.",
-        "STEP 5 — COMMIT: git commit with pass rate delta in message: 'Spec: iteration N — M specs fixed (X% → Y%)'",
-        "STEP 6 — LOOP: Go to STEP 1."
+        "STEP B1 — VALIDATE: Run validate_specs.py to produce _VALIDATION_FAILURES.md. Read the Summary section. If thresholds met, proceed to LOOP C then DONE.",
+        "STEP B2 — ANALYZE: Read _VALIDATION_FAILURES.md. Count unique error patterns. Note any pattern appearing 5+ times.",
+        "STEP B3 — UPDATE PLAYBOOK: For each pattern appearing 5+ times that lacks a CRITICAL RULE in ANALYSIS_PLAYBOOK.md, add one. Commit: 'Playbook: add CRITICAL RULE for [pattern]'",
+        "STEP B4 — REGENERATE: Fix failing specs ordered by error count (highest first). Fully regenerate from JSON IR — do NOT spot-patch. Batch 10-20 specs per commit.",
+        "STEP B5 — COMMIT: git commit with pass rate delta in message: 'Spec: iteration N — M specs fixed (X% → Y%)'",
+        "STEP B6 — LOOP: Go to STEP B1."
+      ]
+    },
+    "loop_C_meta_improvement": {
+      "trigger": "After every complete LOOP B cycle (one pass through B1 → B6)",
+      "stopping_condition": "No stopping condition — run after every B cycle. Final run after B reaches ≥95%.",
+      "purpose": "Improve the process that improves the specs, not the specs themselves",
+      "steps": [
+        "STEP C1 — GATHER EVIDENCE: Pass rate delta, playbook rules added, specs fixed, remaining failures.",
+        "STEP C2 — ANALYZE RULE QUALITY: Are rules precise? Root-cause focused? Do they have examples? Would a fresh AI follow them correctly?",
+        "STEP C3 — ANALYZE PROCESS QUALITY: Was full-regen used (not spot-patch)? Right BP order? Batch size appropriate?",
+        "STEP C4 — UPDATE ANALYSIS_PLAYBOOK.md: Refine vague rules, add WRONG/RIGHT examples, fix rule ordering, add root-cause explanations.",
+        "STEP C5 — UPDATE ITERATION_LOOP.md: Improve protocol steps based on process analysis. Update 'Current State' section.",
+        "STEP C6 — COMMIT: 'Playbook: refine [rule]' / 'IterationLoop: improve [step]'",
+        "STEP C7 — TRIGGER LOOP B: Run next B cycle with the improved process."
+      ],
+      "meta_improvement_questions": [
+        "Is the rule precise enough to be machine-verifiable (clear pass/fail test)?",
+        "Does the rule address root cause or just symptom?",
+        "Would a fresh AI reading only the playbook produce a passing spec?",
+        "Are rules ordered by impact (most-common failures covered first)?",
+        "Does each rule include a WRONG and RIGHT example?",
+        "Were specs fully regenerated (not spot-patched)?",
+        "Do any fixed specs still have errors (indicating spot-patching)?",
+        "Did new error categories appear from nowhere (may indicate validator bug or IR change)?",
+        "How long did the cycle take? Which steps were slowest?"
       ]
     },
     "playbook_update_protocol": {
-      "when": "Same failure type appears in 5+ specs",
-      "what": "Add a new CRITICAL RULE to ANALYSIS_PLAYBOOK.md describing: what triggers the error, how to avoid it, what correct spec content looks like",
+      "when": "Same failure type appears in 5+ specs (LOOP B STEP B3) OR rule quality analysis (LOOP C STEP C2) finds a gap",
+      "what": "Add a new CRITICAL RULE to ANALYSIS_PLAYBOOK.md describing: what triggers the error, the ROOT CAUSE (not just symptom), how to avoid it, what correct spec content looks like, with WRONG and RIGHT examples",
       "commit_message_format": "Playbook: add CRITICAL RULE for [error pattern]",
-      "goal": "By iteration 3-5, ANALYSIS_PLAYBOOK.md should be comprehensive enough that a fresh AI generates near-100% passing specs WITHOUT needing the loop"
+      "goal": "By iteration 3-5, ANALYSIS_PLAYBOOK.md should be comprehensive enough that a fresh AI generates near-100% passing specs WITHOUT needing LOOP B at all"
     },
     "known_resolved_patterns": [
       {
         "pattern": "UserConstructionScript missing from spec",
+        "root_cause": "Validator was treating UCS like any other function. UCS is auto-generated on all Actor-derived BPs and carries no authored logic in most cases — it should be optional, like ExecuteUbergraph_*.",
         "resolution": "Validator updated (v1.1) to exclude UserConstructionScript from L1 mandatory checks. ANALYSIS_PLAYBOOK.md RULE 4 documents the include-only-if-authored-logic rule.",
-        "resolved_in": "validate_specs.py 2026-03-01"
+        "resolved_in": "validate_specs.py 2026-03-01",
+        "impact": "163 false positives eliminated"
       },
       {
         "pattern": "Spec has no Identity section",
+        "root_cause": "Validator was checking for exact '## Identity' heading. Cursor-generated specs used bold **Path:**/**Parent:** fields at the top — equally valid identity info, just formatted differently.",
         "resolution": "Validator updated (v1.1) to accept **Path:** + **Parent:** bold-field format as equivalent to ## Identity heading. ANALYSIS_PLAYBOOK.md RULE 1 documents preferred ## Identity format.",
-        "resolved_in": "validate_specs.py 2026-03-01"
+        "resolved_in": "validate_specs.py 2026-03-01",
+        "impact": "135 false positives eliminated (some overlap with UCS pattern)"
       }
     ]
   },
@@ -122,6 +187,7 @@
       "Missing Logic sections (BPs with nodes but no ## Logic section)",
       "Missing module dependencies"
     ],
-    "next_action": "See ITERATION_LOOP.md — start at STEP 1 (run validator) and follow the loop"
+    "next_action": "Run LOOP B — start validate_specs.py, read _VALIDATION_FAILURES.md, fix specs ordered by error count. After each B cycle, run LOOP C to improve the process.",
+    "last_meta_assessment": null
   }
 }

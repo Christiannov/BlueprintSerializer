@@ -88,62 +88,70 @@ Blueprint exports fit comfortably in a single AI context window.
 
 ---
 
-## MANDATORY: Self-Improving Quality Loop
+## MANDATORY: Three Self-Improving Loops
 
 > **This section is a binding part of the PRIME DIRECTIVE.**
 >
-> A spec corpus that has not passed validation is NOT complete, even if every
-> Blueprint has a corresponding spec file. The PRIME DIRECTIVE is only satisfied
-> when specs pass the quality gates. An AI that generates specs and stops without
-> validating them has not fulfilled the mandate.
+> The PRIME DIRECTIVE is only satisfied when both the extractor AND the specs meet
+> quality gates. An AI that generates specs and stops without validating them has
+> not fulfilled the mandate. An AI that changes plugin code without running the
+> regression harness has not fulfilled the mandate.
+>
+> There are three mandatory loops. Run them all. They improve themselves over time.
 
-### The Loop (execute after any spec generation run)
+### The Three Loops
 
 ```
-LOOP until corpus_thresholds_met():
+LOOP A — Extraction Regression
+  Trigger: any change to BlueprintSerializer plugin C++ source
+  Goal: all 14 regression gates pass (JSON IR is complete and correct)
 
-  1. VALIDATE
-     Run: python Plugins/BlueprintSerializer/Scripts/validate_specs.py
-              docs_Lyra/BlueprintSpecs/
-              Saved/BlueprintExports/BP_SLZR_All_*/
-              --fix-list docs_Lyra/BlueprintSpecs/_VALIDATION_FAILURES.md
+  1. Rebuild LyraEditor (never the plugin name directly)
+  2. Run: powershell -File Plugins/BlueprintSerializer/Scripts/Run-RegressionSuite.ps1
+  3. Read: Saved/BlueprintExports/BP_SLZR_RegressionRun_*.json
+  4. If suitePass=false: fix plugin → rebuild → re-run
+  5. Commit only when all 14 gates pass
 
-  2. READ FAILURES
-     Read: docs_Lyra/BlueprintSpecs/_VALIDATION_FAILURES.md
-     Check Summary: if Pass rate >= 95%, DONE.
-     Otherwise: continue.
+LOOP B — Spec Quality
+  Trigger: after any spec generation or fix session, or when pass rate < thresholds
+  Goal: L1 pass rate ≥ 95%, L2 ≥ 90%, L3 ≥ 85%
 
-  3. IDENTIFY PATTERNS
-     Count recurring error types. Any pattern appearing 5+ times:
-       → Update ANALYSIS_PLAYBOOK.md with a new CRITICAL RULE.
-       → Commit: "Playbook: add rule for [pattern]"
+  1. VALIDATE: python Plugins/BlueprintSerializer/Scripts/validate_specs.py
+               docs_Lyra/BlueprintSpecs/
+               Saved/BlueprintExports/BP_SLZR_All_*/
+               --fix-list docs_Lyra/BlueprintSpecs/_VALIDATION_FAILURES.md
+  2. READ: _VALIDATION_FAILURES.md — if Pass rate >= 95%, go to LOOP C then DONE
+  3. PATTERNS: any error appearing 5+ times → add CRITICAL RULE to ANALYSIS_PLAYBOOK.md
+  4. REGENERATE: fix failing specs by error count (highest first), batches of 10-20
+  5. COMMIT: "Spec: iteration N — M specs fixed (X% → Y%)"
+  6. LOOP: go to step 1
 
-  4. REGENERATE
-     Fix failing specs, ordered by error count (highest first).
-     For each: read JSON export → read current spec → write corrected spec.
-     Batch: 10-20 specs per commit. Commit after each batch.
+LOOP C — Meta-Improvement
+  Trigger: after every complete LOOP B cycle
+  Goal: improve the process that improves the specs
 
-  5. LOOP
-     Go to step 1.
-
-DONE when: Pass rate >= 95% (L1), >= 90% (L2), >= 85% (L3).
+  1. Gather evidence: pass rate delta, rules added, specs fixed, remaining failures
+  2. Analyze rule quality: are rules precise? do they address root causes? do they have examples?
+  3. Analyze process quality: full-regen vs spot-patch? right BP order? batch size?
+  4. Update ANALYSIS_PLAYBOOK.md: refine rules, add examples, fix ordering
+  5. Update ITERATION_LOOP.md: improve the protocol based on what was learned
+  6. Commit: "Playbook: refine [rule]" / "IterationLoop: improve [step]"
+  7. Trigger next LOOP B cycle with the improved process
 ```
 
-### Why This Is Part of the Mandate
+### Why All Three Loops Are Mandatory
 
-A spec is only reconstruction-complete if it actually contains all the data.
-The validator (`validate_specs.py`) mechanically checks that every IR field
-(variable, function, CDO property, module dependency) is represented in the spec.
-If fields are missing, the spec CANNOT be used to reconstruct the Blueprint.
+**LOOP A** ensures the raw material (JSON IR) is correct. If the extractor is broken,
+every spec built from it will be wrong. No amount of LOOP B can fix a bad extractor.
 
-The self-improvement rule: when the same type of failure appears in 5+ specs,
-it means the AI's instructions (ANALYSIS_PLAYBOOK.md) had a gap. Fix the
-instructions, then fix the specs. This improves every future session.
+**LOOP B** ensures specs are reconstruction-complete. A spec corpus with missing
+variables, functions, or CDO data cannot be used to rebuild the Blueprint. The
+validator (`validate_specs.py`) mechanically checks every IR field against every spec.
 
-### Full Protocol
-
-See `ITERATION_LOOP.md` in this directory for the complete step-by-step protocol
-with examples, stopping criteria, edge case handling, and spec template.
+**LOOP C** ensures the improvement process gets smarter. Without LOOP C, the same
+types of failures will appear in every iteration because the instructions that cause
+them never get fixed. With LOOP C, ANALYSIS_PLAYBOOK.md improves until a fresh AI
+generating specs from scratch produces passing specs WITHOUT needing LOOP B at all.
 
 ### Quality Thresholds (from QUALITY_GATES.json)
 
@@ -152,6 +160,12 @@ with examples, stopping criteria, edge case handling, and spec template.
 | L1 | Structural completeness (every IR field in spec) | ≥ 95% |
 | L2 | Value accuracy (types, flags, replication match IR) | ≥ 90% |
 | L3 | Logic coverage (every graph entry point documented) | ≥ 85% |
+
+### Full Protocol
+
+See `ITERATION_LOOP.md` in this directory for the complete step-by-step protocol
+for all three loops, with examples, stopping criteria, edge case handling, LOOP C
+meta-improvement questions, and the quick spec template.
 
 ---
 
@@ -195,4 +209,5 @@ The **tools and methodology are universal**. The **output is project-specific**.
 | `QUALITY_GATES.json` | Machine-readable quality thresholds and self-improvement rules |
 
 **Reading order:** PRIME_DIRECTIVE → SCHEMA_REFERENCE → ANALYSIS_PLAYBOOK → start generating.
-**After generating:** run the self-improving loop from ITERATION_LOOP.md until 100% passes.
+**After generating:** run the three loops from ITERATION_LOOP.md — LOOP B until ≥95% passes,
+LOOP C after each B cycle to make the next cycle smarter, LOOP A after any plugin code change.
