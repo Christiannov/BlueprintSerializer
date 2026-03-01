@@ -86,6 +86,75 @@ The AI does NOT need to process the entire corpus in one session. The expected w
 This means the context window constraint is per-Blueprint, not per-corpus. Most individual
 Blueprint exports fit comfortably in a single AI context window.
 
+---
+
+## MANDATORY: Self-Improving Quality Loop
+
+> **This section is a binding part of the PRIME DIRECTIVE.**
+>
+> A spec corpus that has not passed validation is NOT complete, even if every
+> Blueprint has a corresponding spec file. The PRIME DIRECTIVE is only satisfied
+> when specs pass the quality gates. An AI that generates specs and stops without
+> validating them has not fulfilled the mandate.
+
+### The Loop (execute after any spec generation run)
+
+```
+LOOP until corpus_thresholds_met():
+
+  1. VALIDATE
+     Run: python Plugins/BlueprintSerializer/Scripts/validate_specs.py
+              docs_Lyra/BlueprintSpecs/
+              Saved/BlueprintExports/BP_SLZR_All_*/
+              --fix-list docs_Lyra/BlueprintSpecs/_VALIDATION_FAILURES.md
+
+  2. READ FAILURES
+     Read: docs_Lyra/BlueprintSpecs/_VALIDATION_FAILURES.md
+     Check Summary: if Pass rate >= 95%, DONE.
+     Otherwise: continue.
+
+  3. IDENTIFY PATTERNS
+     Count recurring error types. Any pattern appearing 5+ times:
+       → Update ANALYSIS_PLAYBOOK.md with a new CRITICAL RULE.
+       → Commit: "Playbook: add rule for [pattern]"
+
+  4. REGENERATE
+     Fix failing specs, ordered by error count (highest first).
+     For each: read JSON export → read current spec → write corrected spec.
+     Batch: 10-20 specs per commit. Commit after each batch.
+
+  5. LOOP
+     Go to step 1.
+
+DONE when: Pass rate >= 95% (L1), >= 90% (L2), >= 85% (L3).
+```
+
+### Why This Is Part of the Mandate
+
+A spec is only reconstruction-complete if it actually contains all the data.
+The validator (`validate_specs.py`) mechanically checks that every IR field
+(variable, function, CDO property, module dependency) is represented in the spec.
+If fields are missing, the spec CANNOT be used to reconstruct the Blueprint.
+
+The self-improvement rule: when the same type of failure appears in 5+ specs,
+it means the AI's instructions (ANALYSIS_PLAYBOOK.md) had a gap. Fix the
+instructions, then fix the specs. This improves every future session.
+
+### Full Protocol
+
+See `ITERATION_LOOP.md` in this directory for the complete step-by-step protocol
+with examples, stopping criteria, edge case handling, and spec template.
+
+### Quality Thresholds (from QUALITY_GATES.json)
+
+| Layer | Check | Threshold |
+|-------|-------|-----------|
+| L1 | Structural completeness (every IR field in spec) | ≥ 95% |
+| L2 | Value accuracy (types, flags, replication match IR) | ≥ 90% |
+| L3 | Logic coverage (every graph entry point documented) | ≥ 85% |
+
+---
+
 ## Scope Test
 
 When deciding if a task is in scope for the PRIME DIRECTIVE:
@@ -119,6 +188,11 @@ The **tools and methodology are universal**. The **output is project-specific**.
 
 | File | Purpose |
 |------|---------|
-| `PRIME_DIRECTIVE.md` | This file — the mandate and overview |
+| `PRIME_DIRECTIVE.md` | This file — the mandate, overview, and **self-improving loop** |
 | `SCHEMA_REFERENCE.md` | Complete documentation of the JSON export schema |
-| `ANALYSIS_PLAYBOOK.md` | Step-by-step guide for AI to analyze exports and produce specs |
+| `ANALYSIS_PLAYBOOK.md` | Step-by-step spec generation guide with 8 CRITICAL RULES |
+| `ITERATION_LOOP.md` | Autonomous quality loop — run to drive pass rate to 100% |
+| `QUALITY_GATES.json` | Machine-readable quality thresholds and self-improvement rules |
+
+**Reading order:** PRIME_DIRECTIVE → SCHEMA_REFERENCE → ANALYSIS_PLAYBOOK → start generating.
+**After generating:** run the self-improving loop from ITERATION_LOOP.md until 100% passes.
