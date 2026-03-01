@@ -6,6 +6,79 @@
 
 ---
 
+## CRITICAL RULES — Spec Validation Compliance
+
+> These rules encode patterns confirmed by the corpus-wide validation run.
+> Violating them causes L1/L2/L3 errors. The validator (`validate_specs.py`)
+> enforces them automatically. Read these BEFORE you write a single line.
+
+### RULE 1 — Identity Section Is Mandatory
+Every spec MUST begin with an `## Identity` section heading containing at
+minimum: **Path**, **Parent**, **Generated Class**, **Type**. Placing these
+fields as bold text WITHOUT the `## Identity` heading is accepted by the
+validator for backwards-compatibility, but explicit heading is preferred.
+
+```markdown
+## Identity
+**Path:** `/Game/Path/To/Blueprint`
+**Parent:** `ParentClass` (`/Script/Module.ParentClass`)
+**Generated Class:** `BlueprintName_C`
+**Type:** Standard Blueprint | AnimBP | Gameplay Ability | etc.
+```
+
+### RULE 2 — Exhaustive Variable Listing (No Partial Lists)
+**EVERY entry in `detailedVariables[]`** (except `UberGraphFrame`) MUST appear
+in the Variables table. Do not abbreviate, summarize, or skip variables.
+If there are 30 variables, the table has 30 rows. No exceptions.
+
+Common failure: Cursor's batch-processing often listed only "key" variables
+and omitted others. The validator checks every IR variable by name.
+
+### RULE 3 — CDO Section Is Mandatory When Delta Exists
+If `classDefaultValueDelta` has ANY entries, the `## CDO Overrides` section
+is REQUIRED. An empty CDO section is an L1 error. If the delta is empty,
+write: "Inherits all defaults from parent."
+
+Do NOT conflate `classDefaultValueDelta` (the delta, what you want) with
+`classDefaultValues` (the full CDO dump, which is noise).
+
+### RULE 4 — UserConstructionScript Handling
+`UserConstructionScript` is auto-present on all Actor-derived Blueprints.
+- **If it has NO authored nodes** (empty graph, bytecodeSize ≤ 4): OMIT it.
+  The validator will NOT flag its absence. It is noise.
+- **If it has authored logic** (visible nodes, bytecodeSize > 4): Include it
+  in the Functions section AND document its logic in the Logic section.
+
+The validator skips `UserConstructionScript` from L1 mandatory checks.
+L3 coverage checks may still flag it if the graph has content.
+
+### RULE 5 — All Modules in Dependencies
+**EVERY module in `dependencyClosure.moduleNames`** must appear in the
+Dependencies `**Modules:**` list. Do not abbreviate. If the spec has a
+Dependencies section at all, it must be complete.
+
+### RULE 6 — Purpose and IR Notes Are Required
+Every spec MUST have:
+- `## Purpose` — 1-3 sentences describing what the Blueprint does and why it
+  exists. Without this, a spec reader cannot quickly orient themselves.
+- `## IR Notes` — at minimum one line: "Full coverage — no unsupported nodes."
+  If `compilerIRFallback.hasUnsupportedNodes` is true, list the node types.
+
+### RULE 7 — Logic Section Required When Graphs Have Content
+If `totalNodeCount > 0` AND the EventGraph (Ubergraph) has > 0 nodes,
+a `## Logic` section is REQUIRED. Data-only Blueprints with zero graph nodes
+are exempt. Never omit Logic for a Blueprint with authored event/function graphs.
+
+### RULE 8 — Functions: All IR Functions (Except Compiler-Generated) Required
+Every function in `detailedFunctions[]` must appear in the spec, EXCEPT:
+- `ExecuteUbergraph` and `ExecuteUbergraph_*` — always skip
+- `UserConstructionScript` — skip if trivial (see Rule 4)
+
+Named user functions, overrides, RPCs, BT event overrides (`ReceiveActivateAI`,
+`ReceiveExecuteAI`, etc.) — ALL must be listed.
+
+---
+
 ## Before You Start
 
 ### Required Reading
@@ -13,9 +86,21 @@
 2. **SCHEMA_REFERENCE.md** — understand every field in the JSON exports
 
 ### What You Need
-- Access to the raw JSON export directory (typically `Saved/BlueprintExports/BP_SLZR_All_<timestamp>/`)
-- A place to write specs (typically `Saved/BlueprintSpecs/`)
+- Access to the raw JSON export directory (`Saved/BlueprintExports/BP_SLZR_All_<timestamp>/`)
+- A place to write specs (`docs_Lyra/BlueprintSpecs/`) — this is the canonical location
+- Validation script: `Plugins/BlueprintSerializer/Scripts/validate_specs.py`
 - Git access to commit progress incrementally
+
+### Validation Command
+Run after each batch to measure progress:
+```bash
+python Plugins/BlueprintSerializer/Scripts/validate_specs.py \
+  docs_Lyra/BlueprintSpecs/ \
+  Saved/BlueprintExports/BP_SLZR_All_<timestamp>/ \
+  --fix-list docs_Lyra/BlueprintSpecs/_VALIDATION_FAILURES.md
+```
+Read `_VALIDATION_FAILURES.md` to see which specs need regeneration and why.
+Target: L1 pass rate ≥ 95%, L2 ≥ 90%, L3 ≥ 85%. See `QUALITY_GATES.json`.
 
 ### How This Works
 You read one raw JSON export at a time. You produce one spec markdown file per Blueprint.
@@ -253,13 +338,18 @@ complexity — a data-only Blueprint needs far less than a logic-heavy one.
 ```markdown
 # <BlueprintName>
 
+## Identity
 **Path:** `/Game/Path/To/Blueprint`
-**Parent:** `ParentClassName` (`/Full/Path`)
+**Parent:** `ParentClassName` (`/Script/Module.ParentClassName`)
 **Generated Class:** `BlueprintName_C`
-**Type:** Standard Blueprint | AnimBP | Interface | Macro Library | etc.
+**Type:** Standard Blueprint | AnimBP | Interface | Macro Library | Gameplay Ability | etc.
+
+## Purpose
+One to three sentences. What does this Blueprint do? Why does it exist?
+What system owns it and how does it interact with other systems?
 
 ## Interfaces
-- InterfaceName1
+- InterfaceName1 (`/Script/Module.InterfaceName1`)
 - InterfaceName2
 
 ## Class Specifiers
@@ -268,19 +358,23 @@ Blueprintable, BlueprintType, ...
 ## CDO Overrides (vs Parent)
 | Property | Value | Notes |
 |----------|-------|-------|
-| ... | ... | ... |
+| PropertyName | value | human-readable interpretation |
 
 (If no overrides: "Inherits all defaults from parent.")
 
 ## Variables
 | Name | Type | Default | Replicated | Specifiers |
 |------|------|---------|------------|------------|
-| ... | ... | ... | ... | ... |
+| ... | ... | ... | Yes/No | BlueprintReadWrite, etc. |
+
+**RULE: Every `detailedVariables[]` entry (except UberGraphFrame) must have a row.**
 
 ## Functions
 | Name | Access | Pure | Net | Params | Notes |
 |------|--------|------|-----|--------|-------|
-| ... | ... | ... | ... | ... | ... |
+| ... | Public | No | Server RPC | ... | Override |
+
+**RULE: Every `detailedFunctions[]` entry (except ExecuteUbergraph_* and trivial UCS) must have a row.**
 
 ## Components
 ```
@@ -304,9 +398,11 @@ RootComponent (SceneComponent)
 [Pseudo-code or structured description]
 
 ## Dependencies
-**Modules:** Engine, GameplayAbilities, ...
+**Modules:** Engine, GameplayAbilities, GameplayTags, ...
 **C++ Types:** AActor, FGameplayTag, ...
 **Assets:** /Path/To/Mesh, /Path/To/Material, ...
+
+**RULE: Every module in `dependencyClosure.moduleNames` must appear in Modules list.**
 
 ## User-Defined Types
 
@@ -317,7 +413,7 @@ RootComponent (SceneComponent)
 
 ## IR Notes
 Full coverage — no unsupported nodes.
-(Or: "Unsupported nodes: [list]. Spec gaps exist for these nodes.")
+(Or: "Unsupported nodes: K2Node_SomethingExotic. Spec gaps exist for these nodes.")
 ```
 
 ### Spec Quality Standards

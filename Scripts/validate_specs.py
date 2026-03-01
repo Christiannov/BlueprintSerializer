@@ -37,8 +37,16 @@ from typing import Any
 
 def parse_spec(spec_text: str) -> dict:
     """Parse a markdown spec into structured fields for comparison."""
+    # Detect Identity from either explicit ## Identity heading OR from the
+    # Cursor-generated bold-field header format (**Path:** / **Parent:**).
+    # Both formats carry equivalent reconstruction-complete identity information.
+    has_implicit_identity = bool(
+        re.search(r'\*\*Path:\*\*', spec_text) and
+        re.search(r'\*\*Parent:\*\*', spec_text)
+    )
+
     result = {
-        "has_identity": False,
+        "has_identity": has_implicit_identity,  # upgraded to True if ## Identity found
         "has_purpose": False,
         "has_variables": False,
         "has_functions": False,
@@ -146,8 +154,18 @@ def validate_structural(spec: dict, ir: dict) -> list[dict]:
     issues = []
 
     ir_vars = [v["name"] for v in (ir.get("detailedVariables") or [])]
+
+    # Functions the validator treats as optional / compiler-managed.
+    # ExecuteUbergraph_*  — compiler-generated ubergraph thunks, never user-authored.
+    # UserConstructionScript — auto-present on all Actor BPs; should appear in spec
+    #   ONLY when it contains authored logic (the playbook rules this).  L3 logic
+    #   coverage will flag missing UCS logic for BPs with substantial UCS content.
+    #   Requiring it in L1 causes hundreds of false positives on data-only BPs.
+    _OPTIONAL_FUNC_NAMES = frozenset({"UserConstructionScript"})
     ir_funcs = [f["name"] for f in (ir.get("detailedFunctions") or [])
-                if f["name"] != "ExecuteUbergraph" and not f["name"].startswith("ExecuteUbergraph_")]
+                if f["name"] != "ExecuteUbergraph"
+                and not f["name"].startswith("ExecuteUbergraph_")
+                and f["name"] not in _OPTIONAL_FUNC_NAMES]
     ir_comps = [c["name"] for c in (ir.get("detailedComponents") or [])]
     ir_interfaces = ir.get("implementedInterfaces") or []
     cdo_delta = ir.get("classDefaultValueDelta") or {}
