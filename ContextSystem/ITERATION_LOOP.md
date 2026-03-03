@@ -548,6 +548,56 @@ until LOOP B reaches ≥ 95% L1 pass rate. At that point:
 
 ---
 
+## Context Compaction Protocol
+
+This loop is multi-session by design. Every AI running it must manage context continuity.
+
+### Proactive checkpoint trigger
+
+When 3 or more of these are true, write a checkpoint before continuing:
+- 15+ back-and-forth exchanges in the current session
+- Multiple large JSON IR files and spec files have been read
+- 3+ fix-validate-commit cycles have completed
+- Context appears dense (slow responses, re-reading files already read)
+
+See `cortext/playbooks/context_compaction_awareness.md` for the full protocol.
+
+### What to write in the checkpoint
+
+At `docs_Lyra/BlueprintSpecs/_HANDOFF_LATEST.md` (project-local handoff pointer):
+
+```markdown
+# LOOP B Handoff
+
+## State
+- Pass rate: X% (N/482)
+- Branch: docs/restructure
+- Last commit: <hash> — <message>
+
+## Next action
+Fix <N> remaining specs. Top priority: <list top 5 BP names from _VALIDATION_FAILURES.md>
+
+## Validator command
+python Plugins/BlueprintSerializer/Scripts/validate_specs.py \
+  docs_Lyra/BlueprintSpecs/ \
+  Saved/BlueprintExports/BP_SLZR_All_20260220_200043/ \
+  --fix-list docs_Lyra/BlueprintSpecs/_VALIDATION_FAILURES.md
+
+## Known blockers
+- BP_FluidSim_01, BP_Landmass_LayerStack, LandmassBrush_Erosion: trailing-space validator gap
+```
+
+### On resume (after compaction or agent swap)
+
+1. Read `docs_Lyra/BlueprintSpecs/_HANDOFF_LATEST.md`
+2. Run the validator command listed there to confirm current state
+3. Read `docs_Lyra/BlueprintSpecs/_VALIDATION_FAILURES.md`
+4. Continue from STEP 3 (sort by impact) in LOOP B
+
+Do not re-read all context from scratch. The validator output is ground truth.
+
+---
+
 ## How to Handle Difficult Cases (LOOP B)
 
 ### Blueprint has 20+ variables and many are missing
@@ -584,21 +634,27 @@ If `compilerIRFallback.hasUnsupportedNodes` is true:
 
 ## Current State (as of last validator run)
 
-**Pass rate: 80.1% (386/482)**
+**Pass rate: 94.2% (454/482)**
 
 Top remaining failure patterns (from `_VALIDATION_FAILURES.md`):
-1. **Missing variables** — most high-error BPs are missing variables from their tables
-2. **Missing CDO sections** — BTS_CheckAmmo, BTS_SetFocus, BTS_Shoot, etc.
-3. **Missing CDO properties** — individual properties absent from existing CDO sections
-4. **Missing functions** — user-authored functions not listed
-5. **Missing Logic section** — BPs with nodes but no Logic section
-6. **Missing modules** — dependency closure modules not in Dependencies list
+1. **Complex multi-variable missing** — 28 specs with multiple missing variables/functions
+   requiring full regeneration from JSON IR (not spot-patches)
 
-Highest-priority BPs to fix (ordered by error count):
-- B_Teleport (22 errors), GA_Weapon_Fire (22), B_TeamDeathMatchScoring (21)
-- B_WeaponFire (18), B_FootStep (17), B_Pawn_Explorer (15), GA_AutoRespawn (15)
-- B_WeaponImpacts (14), B_Bomb_Base (13), B_ControlPointScoring (13)
-- B_ControlPointVolume (13), B_Grenade (12), GA_Hero_Dash (12)
+Remaining failing BPs (all complex regens):
+GA_Grenade, B_GrantAbilityPad_ApplyGE, B_Hero_Default, B_Launcher_Push,
+B_NetShooter, B_WeaponDecals, BP_GameplayEffectPad, GA_Weapon_ReloadMagazine,
+B_GrantInventory_Pad, BP_GameplayEffectPad_Forcefeedback, BP_PerfTestGameModeBase,
+GA_SpawnEffect, GA_ADS, GA_DropBomb, GA_Weapon_AutoReload, GAB_ShowWidget_WhileInputHeld,
+GCNL_Character_DamageTaken, B_AI_Controller_LyraShooter, B_Bomb_Standard, B_Launcher_Up,
+B_TopDownArena_GameComponent_Base, B_TopDownArena_Pickup, B_TeleportToUserFacingExperience,
+GC_Collect_Effect, GCNL_Launcher_Activate, BP_FluidSim_01, BP_Landmass_LayerStack,
+LandmassBrush_Erosion
+
+Note: BP_FluidSim_01, BP_Landmass_LayerStack, LandmassBrush_Erosion have trailing-space
+variable names that cannot match validator pipe tables — permanent validator limitation.
+These 3 will remain as "failing" unless the validator is patched for trailing spaces.
+
+Next: fix 25 genuine remaining failures. 4 more passing specs = 95% L1 threshold.
 
 *Update this section after every LOOP B cycle.*
 
